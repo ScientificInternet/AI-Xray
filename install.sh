@@ -351,22 +351,28 @@ write_sub_server() {
 
   cat > "$sub_script" << 'SUBEOF'
 #!/bin/bash
-# Minimal subscription server using socat
 INSTALL_DIR="/etc/ai-xray"
-PORT=$1
-UUID=$(jq -r '.inbounds[0].settings.clients[0].id' ${INSTALL_DIR}/config.json)
-PK=$(jq -r '.inbounds[0].streamSettings.realitySettings.privateKey' ${INSTALL_DIR}/config.json)
-PUB_KEY_FILE="${INSTALL_DIR}/public.key"
-PUB_KEY=$(cat "$PUB_KEY_FILE" 2>/dev/null)
-SID=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' ${INSTALL_DIR}/config.json)
-DEST=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' ${INSTALL_DIR}/config.json)
+CONFIG="${INSTALL_DIR}/config.json"
+UUID=$(jq -r '.inbounds[0].settings.clients[0].id' "$CONFIG")
+PUB_KEY=$(cat "${INSTALL_DIR}/public.key" 2>/dev/null)
+SID=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' "$CONFIG")
+DEST=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$CONFIG")
 IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null)
+
+# Read HTTP request
+read -r REQUEST_LINE
+REQ_PATH=$(echo "$REQUEST_LINE" | awk '{print $2}')
+
+# Validate path contains UUID
+if [[ "$REQ_PATH" != *"$UUID"* ]]; then
+  echo -e "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\nNot Found"
+  exit 0
+fi
 
 LINK="vless://${UUID}@${IP}:443?encryption=none&security=reality&sni=${DEST}&fp=chrome&pbk=${PUB_KEY}&sid=${SID}&type=tcp&flow=xtls-rprx-vision#AI-Xray-${IP}"
 ENCODED=$(echo -n "$LINK" | base64 -w 0)
 
-RESPONSE="HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n${ENCODED}"
-echo -e "$RESPONSE"
+echo -e "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nSubscription-Userinfo: upload=0; download=0; total=10737418240; expire=0\r\nConnection: close\r\n\r\n${ENCODED}"
 SUBEOF
 
   chmod +x "$sub_script"
@@ -413,6 +419,11 @@ LATENCY_THRESHOLD=500
 LOSS_THRESHOLD=10
 RST_THRESHOLD=5
 
+# Traffic shaping: max concurrent connections (ramps up over days)
+MAX_CONN_INITIAL=20
+MAX_CONN_FULL=200
+RAMP_DAYS=7
+
 # Init SQLite
 init_db() {
   sqlite3 "$DB" "CREATE TABLE IF NOT EXISTS rotations (
@@ -432,8 +443,49 @@ init_db() {
     dest TEXT,
     latency_ms INTEGER,
     loss_pct REAL,
-    rst_count INTEGER
+    rst_count INTEGER,
+    conn_count INTEGER
   );"
+
+  sqlite3 "$DB" "CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );"
+
+  # Record install time if not exists
+  sqlite3 "$DB" "INSERT OR IGNORE INTO meta (key, value) VALUES ('install_time', datetime('now'));"
+}
+
+# Traffic shaping: calculate current max connections based on age
+get_max_connections() {
+  local install_time=$(sqlite3 "$DB" "SELECT value FROM meta WHERE key='install_time';")
+  if [ -z "$install_time" ]; then
+    echo $MAX_CONN_INITIAL
+    return
+  fi
+
+  local age_seconds=$(( $(date +%s) - $(date -d "$install_time" +%s 2>/dev/null || echo $(date +%s)) ))
+  local age_days=$(( age_seconds / 86400 ))
+
+  if [ $age_days -ge $RAMP_DAYS ]; then
+    echo $MAX_CONN_FULL
+  else
+    local range=$(( MAX_CONN_FULL - MAX_CONN_INITIAL ))
+    local current=$(( MAX_CONN_INITIAL + (range * age_days / RAMP_DAYS) ))
+    echo $current
+  fi
+}
+
+# Enforce connection limit via iptables
+enforce_conn_limit() {
+  local max_conn=$(get_max_connections)
+  local current_conn=$(ss -tn state established '( sport = :443 )' 2>/dev/null | wc -l)
+
+  # Remove old rule if exists, add new one
+  iptables -D INPUT -p tcp --dport 443 --syn -m connlimit --connlimit-above $max_conn -j DROP 2>/dev/null
+  iptables -A INPUT -p tcp --dport 443 --syn -m connlimit --connlimit-above $max_conn -j DROP 2>/dev/null
+
+  echo "$current_conn/$max_conn"
 }
 
 # Get current dest from config
@@ -519,8 +571,11 @@ main() {
     CURRENT_RST=$(count_rst)
 
     # Log health
-    sqlite3 "$DB" "INSERT INTO health (dest, latency_ms, loss_pct, rst_count)
-      VALUES ('$dest', $CURRENT_LATENCY, $CURRENT_LOSS, $CURRENT_RST);"
+    sqlite3 "$DB" "INSERT INTO health (dest, latency_ms, loss_pct, rst_count, conn_count)
+      VALUES ('$dest', $CURRENT_LATENCY, $CURRENT_LOSS, $CURRENT_RST, $(ss -tn state established '( sport = :443 )' 2>/dev/null | wc -l));"
+
+    # Traffic shaping
+    local conn_info=$(enforce_conn_limit)
 
     # Check thresholds
     local reason=""
@@ -537,7 +592,7 @@ main() {
       echo "$(date '+%Y-%m-%d %H:%M:%S') [ALERT] $reason - rotating..." >> "$LOG"
       rotate_dest "$reason"
     else
-      echo "$(date '+%Y-%m-%d %H:%M:%S') [OK] dest=$dest latency=${CURRENT_LATENCY}ms loss=${CURRENT_LOSS}% rst=$CURRENT_RST" >> "$LOG"
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [OK] dest=$dest latency=${CURRENT_LATENCY}ms loss=${CURRENT_LOSS}% rst=$CURRENT_RST conn=$conn_info" >> "$LOG"
     fi
 
     sleep $CHECK_INTERVAL
@@ -618,7 +673,7 @@ show_result() {
   echo -e "${CYAN}Dest:${PLAIN}        $DEST"
   echo -e "${CYAN}Public Key:${PLAIN}  $PUBLIC_KEY"
   echo -e "${CYAN}Short ID:${PLAIN}    $SHORT_ID"
-  echo -e "${CYAN}Sub URL:${PLAIN}     http://${VPS_IP}:${SUB_PORT}"
+  echo -e "${CYAN}Sub URL:${PLAIN}     http://${VPS_IP}:${SUB_PORT}/${UUID}"
   echo ""
   echo -e "${CYAN}Node Link:${PLAIN}"
   echo -e "${YELLOW}${link}${PLAIN}"
@@ -645,7 +700,7 @@ Public Key: $PUBLIC_KEY
 Short ID: $SHORT_ID
 Dest: $DEST
 Link: $link
-Sub URL: http://${VPS_IP}:${SUB_PORT}
+Sub URL: http://${VPS_IP}:${SUB_PORT}/${UUID}
 EOF
 }
 
