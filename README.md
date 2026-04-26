@@ -233,15 +233,23 @@ AI-Xray 生成的订阅链接兼容所有主流客户端：
 | iOS | Shadowrocket, Stash |
 | OpenWrt | OpenClash, Passwall2 |
 
-### OpenClash AI 插件（开发中）
-
-专为 OpenWrt 路由器打造的 AI 插件。装上后：
-- 自动识别节点类型，生成最优 OpenClash 配置
-- AI 实时监测所有节点健康，预判死亡提前切换
-- 白名单默认开启
-- 用户界面只有一个开关
+### OpenWrt AI Plugin
 
 路由器级别一装，家里所有设备全走 AI 智能线路。
+
+```bash
+# SSH into your OpenWrt router, then:
+sh <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/main/openwrt/install-openwrt.sh) "你的订阅链接"
+```
+
+插件自动完成：
+- 安装 mihomo 核心
+- 解析订阅链接（支持 VLESS / VMess / SS / Trojan）
+- 生成最优配置（DNS / 分流 / 策略组）
+- 启动 AI Router 守护进程
+- 配置透明代理（所有 LAN 设备自动走代理）
+- 实时监测所有节点健康，预判死亡提前切换
+- 30 秒检测一次，2x 基线延迟触发切换，120 秒切换冷却
 
 ---
 
