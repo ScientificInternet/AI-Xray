@@ -1,4 +1,4 @@
-// AI-Xray Free Mode - Cloudflare Workers/Pages
+// AI-Xray Free Mode
 // https://github.com/ScientificInternet/AI-Xray
 // MIT License
 
@@ -35,7 +35,6 @@ export default {
   }
 };
 
-// Decoy page - looks like a normal site
 function renderDecoy() {
   return new Response(
     '<!DOCTYPE html><html><head><title>Welcome</title></head><body><h1>Service Running</h1><p>System operational.</p></body></html>',
@@ -43,214 +42,179 @@ function renderDecoy() {
   );
 }
 
-// Handle WebSocket stream
 async function handleStream(request) {
   const [client, server] = Object.values(new WebSocketPair());
-  server.accept();
+  server.accept({ allowHalfOpen: true });
+
+  // Decode early data from Sec-WebSocket-Protocol header
+  const earlyProto = request.headers.get('sec-websocket-protocol') || '';
+  let earlyData = null;
+  if (earlyProto) {
+    try {
+      const raw = atob(earlyProto);
+      earlyData = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) earlyData[i] = raw.charCodeAt(i);
+    } catch (e) {
+      earlyData = null;
+    }
+  }
 
   let headerDone = false;
-  let targetHost = '';
-  let targetPort = 0;
-  let tcpSocket = null;
-  let responseHeader = null;
+  let tcpWriter = null;
 
-  const readableStream = new ReadableStream({
-    start(controller) {
-      server.addEventListener('message', (event) => {
-        controller.enqueue(event.data);
-      });
-      server.addEventListener('close', () => {
-        controller.close();
-      });
-      server.addEventListener('error', (err) => {
-        controller.error(err);
-      });
-    },
-    cancel() {
+  async function processChunk(chunk) {
+    const data = new Uint8Array(chunk);
+
+    if (!headerDone) {
+      const parsed = parseHeader(data);
+      if (parsed.error) {
+        safeClose(server);
+        return;
+      }
+
+      headerDone = true;
+      const responseHeader = new Uint8Array([parsed.version, 0]);
+
+      // Connect: try direct first, then relay
+      let tcpSocket = null;
+      try {
+        tcpSocket = connect({ hostname: parsed.host, port: parsed.port });
+        await tcpSocket.opened;
+      } catch (e) {
+        tcpSocket = null;
+      }
+
+      // Fallback to relay (direct TCP, NOT HTTP CONNECT)
+      if (!tcpSocket && cfgRelay) {
+        try {
+          const relayHost = cfgRelay.split(':')[0];
+          tcpSocket = connect({ hostname: relayHost, port: parsed.port });
+          await tcpSocket.opened;
+        } catch (e) {
+          tcpSocket = null;
+        }
+      }
+
+      if (!tcpSocket) {
+        safeClose(server);
+        return;
+      }
+
+      // Keep writer for the lifetime of the connection
+      tcpWriter = tcpSocket.writable.getWriter();
+
+      if (parsed.payload.byteLength > 0) {
+        await tcpWriter.write(parsed.payload);
+      }
+
+      // Pipe TCP responses back to WebSocket
+      pipeToWS(tcpSocket.readable, server, responseHeader);
+    } else {
+      if (tcpWriter) {
+        await tcpWriter.write(data);
+      }
+    }
+  }
+
+  // Process early data first if present
+  if (earlyData && earlyData.byteLength > 0) {
+    await processChunk(earlyData.buffer);
+  }
+
+  server.addEventListener('message', async (event) => {
+    try {
+      await processChunk(event.data);
+    } catch (e) {
       safeClose(server);
     }
   });
 
-  const writer = new WritableStream({
-    async write(chunk) {
-      if (!headerDone) {
-        const parsed = parseHeader(new Uint8Array(chunk));
-        if (parsed.error) {
-          safeClose(server);
-          return;
-        }
-
-        headerDone = true;
-        targetHost = parsed.host;
-        targetPort = parsed.port;
-        responseHeader = new Uint8Array([parsed.version, 0]);
-
-        const payload = parsed.payload;
-
-        // Try direct connection first, then relay
-        tcpSocket = await connectTarget(targetHost, targetPort);
-
-        if (!tcpSocket) {
-          safeClose(server);
-          return;
-        }
-
-        const tcpWriter = tcpSocket.writable.getWriter();
-
-        // Send initial payload
-        if (payload.byteLength > 0) {
-          await tcpWriter.write(payload);
-        }
-        tcpWriter.releaseLock();
-
-        // Pipe TCP responses back to WebSocket
-        pipeToWS(tcpSocket.readable, server, responseHeader);
-      } else {
-        // Subsequent messages - relay directly to TCP
-        if (tcpSocket) {
-          const tcpWriter = tcpSocket.writable.getWriter();
-          await tcpWriter.write(chunk);
-          tcpWriter.releaseLock();
-        }
-      }
-    },
-    close() {
-      if (tcpSocket) {
-        safeClose(server);
-      }
-    },
-    abort() {
-      if (tcpSocket) {
-        safeClose(server);
-      }
-    }
+  server.addEventListener('close', () => {
+    if (tcpWriter) tcpWriter.close().catch(() => {});
   });
 
-  readableStream.pipeTo(writer).catch(() => {
-    safeClose(server);
+  server.addEventListener('error', () => {
+    if (tcpWriter) tcpWriter.abort().catch(() => {});
   });
 
-  return new Response(null, { status: 101, webSocket: client });
+  const responseHeaders = earlyProto
+    ? { 'sec-websocket-protocol': earlyProto }
+    : {};
+
+  return new Response(null, {
+    status: 101,
+    webSocket: client,
+    headers: responseHeaders,
+  });
 }
 
-// Parse protocol header
-// Format: [version(1)] [uuid(16)] [optLen(1)] [opt(N)] [cmd(1)] [port(2)] [addrType(1)] [addr(N)] [payload...]
+// [ver(1)][id(16)][optLen(1)][opt(N)][cmd(1)][port(2)][addrType(1)][addr(N)][payload...]
 function parseHeader(buffer) {
-  if (buffer.byteLength < 24) {
-    return { error: true };
-  }
+  if (buffer.byteLength < 24) return { error: true };
 
   const version = buffer[0];
-
-  // Validate UUID
-  const reqId = formatUUID(buffer.slice(1, 17));
-  if (reqId !== cfgId) {
-    return { error: true };
-  }
+  const reqId = bytesToId(buffer.slice(1, 17));
+  if (reqId !== cfgId) return { error: true };
 
   const optLen = buffer[17];
-  const cmd = buffer[18 + optLen];
+  const cmdIdx = 18 + optLen;
+  if (cmdIdx >= buffer.byteLength) return { error: true };
 
-  // Only support TCP (cmd=1)
-  if (cmd !== 1) {
-    return { error: true };
-  }
+  const cmd = buffer[cmdIdx];
+  if (cmd !== 1) return { error: true }; // TCP only
 
-  const portStart = 18 + optLen + 1;
-  const port = (buffer[portStart] << 8) | buffer[portStart + 1];
+  const portIdx = cmdIdx + 1;
+  if (portIdx + 1 >= buffer.byteLength) return { error: true };
+  const port = (buffer[portIdx] << 8) | buffer[portIdx + 1];
 
-  const addrType = buffer[portStart + 2];
+  const atIdx = portIdx + 2;
+  if (atIdx >= buffer.byteLength) return { error: true };
+  const addrType = buffer[atIdx];
+
   let host = '';
   let addrEnd = 0;
 
   switch (addrType) {
-    case 1: // IPv4
-      host = `${buffer[portStart + 3]}.${buffer[portStart + 4]}.${buffer[portStart + 5]}.${buffer[portStart + 6]}`;
-      addrEnd = portStart + 7;
+    case 1: {
+      if (atIdx + 4 >= buffer.byteLength) return { error: true };
+      host = `${buffer[atIdx + 1]}.${buffer[atIdx + 2]}.${buffer[atIdx + 3]}.${buffer[atIdx + 4]}`;
+      addrEnd = atIdx + 5;
       break;
-    case 2: // Domain
-      const domainLen = buffer[portStart + 3];
-      host = new TextDecoder().decode(buffer.slice(portStart + 4, portStart + 4 + domainLen));
-      addrEnd = portStart + 4 + domainLen;
+    }
+    case 2: {
+      const dLen = buffer[atIdx + 1];
+      if (atIdx + 2 + dLen > buffer.byteLength) return { error: true };
+      host = new TextDecoder().decode(buffer.slice(atIdx + 2, atIdx + 2 + dLen));
+      addrEnd = atIdx + 2 + dLen;
       break;
-    case 3: // IPv6
-      const ipv6Parts = [];
+    }
+    case 3: {
+      if (atIdx + 16 >= buffer.byteLength) return { error: true };
+      const p = [];
       for (let i = 0; i < 8; i++) {
-        ipv6Parts.push(((buffer[portStart + 3 + i * 2] << 8) | buffer[portStart + 3 + i * 2 + 1]).toString(16));
+        p.push(((buffer[atIdx + 1 + i * 2] << 8) | buffer[atIdx + 1 + i * 2 + 1]).toString(16));
       }
-      host = ipv6Parts.join(':');
-      addrEnd = portStart + 19;
+      host = p.join(':');
+      addrEnd = atIdx + 17;
       break;
+    }
     default:
       return { error: true };
   }
 
-  const payload = buffer.slice(addrEnd);
-
-  return { version, host, port, payload, error: false };
+  return { version, host, port, payload: buffer.slice(addrEnd), error: false };
 }
 
-// Connect to target, with relay fallback
-async function connectTarget(host, port) {
-  // Try direct connection
-  try {
-    const sock = connect({ hostname: host, port: port });
-    const info = await sock.opened;
-    return sock;
-  } catch (e) {
-    // Direct connection failed
-  }
-
-  // Try relay if configured
-  if (cfgRelay) {
-    try {
-      const [relayHost, relayPort] = parseRelay(cfgRelay);
-      const sock = connect({ hostname: relayHost, port: relayPort || 443 });
-      await sock.opened;
-
-      // Send actual target info through relay
-      const connectCmd = `CONNECT ${host}:${port} HTTP/1.1\r\nHost: ${host}:${port}\r\n\r\n`;
-      const writer = sock.writable.getWriter();
-      await writer.write(new TextEncoder().encode(connectCmd));
-      writer.releaseLock();
-
-      // Read relay response
-      const reader = sock.readable.getReader();
-      const { value } = await reader.read();
-      reader.releaseLock();
-
-      const response = new TextDecoder().decode(value);
-      if (response.includes('200')) {
-        return sock;
-      }
-    } catch (e) {
-      // Relay also failed
-    }
-  }
-
-  return null;
-}
-
-function parseRelay(relay) {
-  const match = (relay || '').match(/^(.*?)(?::(\d+))?$/);
-  return [match ? match[1] : relay, match ? parseInt(match[2]) : 443];
-}
-
-// Pipe TCP readable stream to WebSocket
 async function pipeToWS(readable, ws, header) {
   let headerSent = false;
-
   try {
     const reader = readable.getReader();
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-
       if (ws.readyState !== WS_READY) break;
 
       if (!headerSent) {
-        // Prepend response header to first chunk
         const merged = new Uint8Array(header.byteLength + value.byteLength);
         merged.set(header, 0);
         merged.set(new Uint8Array(value), header.byteLength);
@@ -260,37 +224,27 @@ async function pipeToWS(readable, ws, header) {
         ws.send(value);
       }
     }
-  } catch (e) {
-    // Stream error
-  }
-
+  } catch (e) {}
   safeClose(ws);
 }
 
-// Safe WebSocket close
 function safeClose(ws) {
-  try {
-    if (ws.readyState === WS_READY || ws.readyState === 2) {
-      ws.close();
-    }
-  } catch (e) {
-    // Already closed
-  }
+  try { if (ws.readyState <= 1) ws.close(); } catch (e) {}
 }
 
-// Format UUID from bytes
-function formatUUID(bytes) {
-  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`.toLowerCase();
+function bytesToId(bytes) {
+  const h = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`.toLowerCase();
 }
 
-// Build config page
+// ==================== UI ====================
+
 function buildConfigPage(request) {
   const host = request.headers.get('Host') || '';
   const link = buildLink(host);
 
   const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>AI-Xray Config</title>
+<html><head><meta charset="utf-8"><title>AI-Xray</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 body{font-family:system-ui;max-width:640px;margin:40px auto;padding:0 20px;background:#0d1117;color:#e6edf3}
@@ -299,16 +253,18 @@ h1{font-size:20px;color:#58a6ff}
 .label{font-size:12px;color:#8b949e;margin-bottom:8px}
 button{background:#238636;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:14px}
 button:hover{background:#2ea043}
+.ok{color:#3fb950;font-size:12px;display:none}
 a{color:#58a6ff}
 </style></head><body>
 <h1>AI-Xray</h1>
 <div class="label">Node Link</div>
 <div class="box" id="link">${link}</div>
-<button onclick="navigator.clipboard.writeText(document.getElementById('link').textContent)">Copy Link</button>
+<button onclick="copy('link','c1')">Copy</button> <span class="ok" id="c1">Copied</span>
 <br><br>
-<div class="label">Subscription (Clash / V2rayN / Shadowrocket)</div>
-<div class="box"><a href="https://${host}/sub/${cfgId}">https://${host}/sub/${cfgId}</a></div>
-<br>
+<div class="label">Subscription URL</div>
+<div class="box" id="sub">https://${host}/sub/${cfgId}</div>
+<button onclick="copy('sub','c2')">Copy</button> <span class="ok" id="c2">Copied</span>
+<br><br>
 <div class="label">Supported Clients</div>
 <div class="box">
 Windows: v2rayN, Clash Verge Rev<br>
@@ -317,46 +273,42 @@ Android: v2rayNG, ClashMeta<br>
 iOS: Shadowrocket, Stash<br>
 OpenWrt: OpenClash, Passwall2
 </div>
+<script>
+function copy(id,ok){navigator.clipboard.writeText(document.getElementById(id).textContent);var e=document.getElementById(ok);e.style.display='inline';setTimeout(()=>e.style.display='none',2000)}
+</script>
 </body></html>`;
 
-  return new Response(html, {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' }
-  });
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-// Build subscription response
 function buildSubscription(request) {
   const host = request.headers.get('Host') || '';
   const ua = (request.headers.get('User-Agent') || '').toLowerCase();
   const link = buildLink(host);
 
-  // Clash format
-  if (ua.includes('clash') || ua.includes('mihomo')) {
-    const clash = buildClashConfig(host);
-    return new Response(clash, {
+  if (ua.includes('clash') || ua.includes('mihomo') || ua.includes('stash')) {
+    return new Response(buildClashConfig(host), {
       headers: {
         'Content-Type': 'text/yaml; charset=utf-8',
-        'Content-Disposition': 'attachment; filename=ai-xray.yaml'
+        'Content-Disposition': 'attachment; filename=ai-xray.yaml',
+        'Profile-Update-Interval': '24',
       }
     });
   }
 
-  // Default: base64 encoded links (v2rayN, Shadowrocket, etc.)
-  const encoded = btoa(link);
-  return new Response(encoded, {
+  return new Response(btoa(link), {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
-      'Subscription-Userinfo': 'upload=0; download=0; total=10737418240; expire=0'
+      'Subscription-Userinfo': 'upload=0; download=0; total=10737418240; expire=0',
+      'Profile-Update-Interval': '24',
     }
   });
 }
 
-// Build node link
 function buildLink(host) {
   return `vless://${cfgId}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2048#AI-Xray-${host}`;
 }
 
-// Build Clash/Mihomo config
 function buildClashConfig(host) {
   return `mixed-port: 7890
 allow-lan: true
