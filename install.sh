@@ -558,6 +558,44 @@ rotate_dest() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') [MORPH] $old_dest -> $new_dest (reason: $reason)" >> "$LOG"
 }
 
+# M-Lab NDT7 speed test (runs every 6 hours, results auto-published to BigQuery)
+MLAB_INTERVAL=21600
+MLAB_LAST=0
+
+run_mlab_ndt() {
+  local now=$(date +%s)
+  local elapsed=$(( now - MLAB_LAST ))
+  if [ $elapsed -lt $MLAB_INTERVAL ]; then
+    return
+  fi
+  MLAB_LAST=$now
+
+  # Get nearest M-Lab server
+  local locate=$(curl -s --max-time 10 "https://locate.measurementlab.net/v2/nearest/ndt/ndt7" 2>/dev/null)
+  local dl_url=$(echo "$locate" | jq -r '.results[0].urls["wss:///ndt/v7/download"] // empty' 2>/dev/null)
+
+  if [ -z "$dl_url" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [MLAB] Could not locate server" >> "$LOG"
+    return
+  fi
+
+  # Simple download test via curl (creates NDT record on M-Lab server)
+  local start=$(date +%s%N)
+  local bytes=$(curl -s --max-time 10 -o /dev/null -w '%{size_download}' "${dl_url}" 2>/dev/null)
+  local end=$(date +%s%N)
+
+  local duration_ms=$(( (end - start) / 1000000 ))
+  local speed_mbps=0
+  if [ $duration_ms -gt 0 ]; then
+    speed_mbps=$(echo "$bytes $duration_ms" | awk '{printf "%.2f", ($1 * 8) / ($2 * 1000)}')
+  fi
+
+  sqlite3 "$DB" "INSERT INTO health (dest, latency_ms, loss_pct, rst_count, conn_count)
+    VALUES ('mlab-ndt7', $duration_ms, 0, 0, 0);"
+
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [MLAB] NDT7 download: ${speed_mbps} Mbps (${bytes} bytes in ${duration_ms}ms)" >> "$LOG"
+}
+
 # Main loop
 main() {
   init_db
@@ -596,6 +634,9 @@ main() {
     fi
 
     sleep $CHECK_INTERVAL
+
+    # Periodic M-Lab NDT test (every 6h)
+    run_mlab_ndt
   done
 }
 
@@ -774,6 +815,25 @@ case "$1" in
     echo "Updating AI-Xray..."
     curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/main/install.sh | bash
     ;;
+  export)
+    echo "Exporting guard data for model training..."
+    DB="${INSTALL_DIR}/guard.db"
+    if [ ! -f "$DB" ]; then
+      echo "No guard data found."
+      exit 1
+    fi
+    OUTPUT="${INSTALL_DIR}/export-$(date +%Y%m%d).json"
+    echo "[" > "$OUTPUT"
+    # Export rotations
+    sqlite3 "$DB" -json "SELECT timestamp, old_dest as from_dest, new_dest as to_dest, trigger_reason, latency_ms, loss_pct, rst_count FROM rotations ORDER BY timestamp;" >> "$OUTPUT"
+    echo "," >> "$OUTPUT"
+    # Export health summary (hourly averages)
+    sqlite3 "$DB" -json "SELECT strftime('%Y-%m-%d %H:00', timestamp) as hour, dest, AVG(latency_ms) as avg_latency, AVG(loss_pct) as avg_loss, AVG(rst_count) as avg_rst, AVG(conn_count) as avg_conn, COUNT(*) as samples FROM health GROUP BY hour, dest ORDER BY hour;" >> "$OUTPUT"
+    echo "]" >> "$OUTPUT"
+    echo "Exported to: $OUTPUT"
+    echo "This file contains anonymized network quality data."
+    echo "No IP addresses or user information is included."
+    ;;
   uninstall)
     echo "Uninstalling AI-Xray..."
     systemctl stop xray ai-xray-guard ai-xray-sub 2>/dev/null
@@ -796,6 +856,7 @@ case "$1" in
     echo "  dest        Show current dest and pool"
     echo "  whitelist   Show whitelist domains"
     echo "  sub         Show subscription info"
+    echo "  export      Export guard data for model training"
     echo "  update      Update AI-Xray"
     echo "  uninstall   Remove AI-Xray"
     ;;
