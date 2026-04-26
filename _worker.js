@@ -5,13 +5,13 @@
 import { connect } from 'cloudflare:sockets';
 
 let cfgId = '';
-let cfgRelay = '';
+let cfgProxyIP = '';
 const WS_READY = 1;
 
 export default {
   async fetch(request, env) {
     cfgId = env.UUID || cfgId;
-    cfgRelay = env.RELAY || cfgRelay;
+    cfgProxyIP = env.PROXYIP || cfgProxyIP;
     if (!cfgId) return new Response('Not configured', { status: 500 });
 
     const upgrade = request.headers.get('Upgrade');
@@ -136,7 +136,7 @@ async function processStream(readable, ws) {
 
       // Start TCP→WS pipe in background (don't block this write())
       pipeToWS(tcpSocket.readable, ws, respHeader).then(ok => {
-        if (!ok && cfgRelay) {
+        if (!ok && cfgProxyIP) {
           // No data received, retry with relay
           retryWithRelay(parsed.host, parsed.port, parsed.payload, ws, respHeader);
         }
@@ -157,6 +157,10 @@ async function processStream(readable, ws) {
 
 // ==================== TCP Handler ====================
 
+// Connect to target.
+// ProxyIP fallback: for CF-hosted destinations that CF Workers can't reach directly.
+// ProxyIP is a non-CF server that reverse-proxies based on SNI in the client's TLS handshake.
+// It does NOT work for arbitrary non-CF destinations.
 async function connectTCP(addr, port, rawData) {
   // Try direct connection
   try {
@@ -169,9 +173,9 @@ async function connectTCP(addr, port, rawData) {
   } catch (e) {}
 
   // Try relay
-  if (cfgRelay) {
+  if (cfgProxyIP) {
     try {
-      const relayHost = cfgRelay.split(':')[0];
+      const relayHost = cfgProxyIP.split(':')[0];
       const tcp = connect({ hostname: relayHost, port });
       await tcp.opened;
       const writer = tcp.writable.getWriter();
@@ -185,9 +189,9 @@ async function connectTCP(addr, port, rawData) {
 }
 
 async function retryWithRelay(addr, port, rawData, ws, respHeader) {
-  if (!cfgRelay) return;
+  if (!cfgProxyIP) return;
   try {
-    const relayHost = cfgRelay.split(':')[0];
+    const relayHost = cfgProxyIP.split(':')[0];
     const tcp = connect({ hostname: relayHost, port });
     await tcp.opened;
     const writer = tcp.writable.getWriter();
@@ -381,7 +385,7 @@ function buildSubscription(request) {
       headers: {
         'Content-Type': 'text/yaml; charset=utf-8',
         'Content-Disposition': 'attachment; filename=ai-xray.yaml',
-        'Profile-Update-Interval': '24',
+        'Profile-Update-Interval': '1',
       }
     });
   }
@@ -390,7 +394,7 @@ function buildSubscription(request) {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
       'Subscription-Userinfo': 'upload=0; download=0; total=10737418240; expire=0',
-      'Profile-Update-Interval': '24',
+      'Profile-Update-Interval': '1',
     }
   });
 }

@@ -95,9 +95,25 @@ detect_system() {
 
 install_deps() {
   info "Installing dependencies..."
-  $PKG_UPDATE >/dev/null 2>&1
-  $PKG_INSTALL curl wget jq openssl qrencode sqlite3 >/dev/null 2>&1 || true
-  ok "Dependencies installed"
+  $PKG_UPDATE >/dev/null 2>&1 || warn "Package index update failed, continuing with existing cache"
+
+  local failed=""
+  for pkg in curl wget jq openssl qrencode sqlite3; do
+    if ! command -v "$pkg" &>/dev/null; then
+      $PKG_INSTALL "$pkg" >/dev/null 2>&1 || failed="${failed} ${pkg}"
+    fi
+  done
+
+  if [ -n "$failed" ]; then
+    warn "Failed to install:${failed}. Some features may not work."
+  fi
+
+  # Hard requirements
+  for req in curl jq openssl sqlite3; do
+    command -v "$req" &>/dev/null || fail "${req} is required but could not be installed"
+  done
+
+  ok "Dependencies ready"
 }
 
 # ==================== VPS Quality Check ====================
@@ -194,15 +210,30 @@ enable_bbr() {
 install_xray() {
   info "Installing Xray-core..."
 
-  # Use official install script
-  bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install >/dev/null 2>&1
-
-  if ! command -v xray &>/dev/null; then
-    fail "Xray installation failed"
+  if command -v xray &>/dev/null; then
+    local existing_ver=$(xray version 2>/dev/null | head -1 | awk '{print $2}')
+    ok "Xray already installed: $existing_ver"
+    return
   fi
 
-  local ver=$(xray version | head -1 | awk '{print $2}')
+  # Use official install script
+  local install_log=$(mktemp)
+  if ! bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install > "$install_log" 2>&1; then
+    cat "$install_log"
+    rm -f "$install_log"
+    fail "Xray installation failed. Check output above."
+  fi
+  rm -f "$install_log"
+
+  if ! command -v xray &>/dev/null; then
+    fail "Xray binary not found after installation"
+  fi
+
+  local ver=$(xray version 2>/dev/null | head -1 | awk '{print $2}')
   ok "Xray $ver installed"
+
+  # Pin version for reproducibility
+  echo "$ver" > "${INSTALL_DIR}/xray-version"
 }
 
 # ==================== Generate Keys ====================
@@ -378,7 +409,9 @@ SUBEOF
   chmod +x "$sub_script"
 
   # Install socat if not present
-  $PKG_INSTALL socat >/dev/null 2>&1 || true
+  if ! command -v socat &>/dev/null; then
+    $PKG_INSTALL socat >/dev/null 2>&1 || warn "socat not installed, subscription endpoint will not work"
+  fi
 
   # Create systemd service for sub endpoint
   cat > /etc/systemd/system/ai-xray-sub.service << EOF
@@ -546,9 +579,11 @@ rotate_dest() {
     .inbounds[0].streamSettings.realitySettings.shortIds = [$sid]
   ' "$CONFIG" > "$tmp" && mv "$tmp" "$CONFIG"
 
-  # Reload Xray (SIGHUP for graceful reload)
+  # Restart Xray - this WILL briefly disconnect clients.
+  # Clients need to re-pull subscription to get new shortId.
+  # Only triggered when connection is already degraded, so impact is minimal.
   if systemctl is-active xray >/dev/null 2>&1; then
-    systemctl restart xray
+    systemctl restart xray 2>/dev/null
   fi
 
   # Log rotation
@@ -556,44 +591,6 @@ rotate_dest() {
     VALUES ('$old_dest', '$new_dest', '$reason', $CURRENT_LATENCY, $CURRENT_LOSS, $CURRENT_RST);"
 
   echo "$(date '+%Y-%m-%d %H:%M:%S') [MORPH] $old_dest -> $new_dest (reason: $reason)" >> "$LOG"
-}
-
-# M-Lab NDT7 speed test (runs every 6 hours, results auto-published to BigQuery)
-MLAB_INTERVAL=21600
-MLAB_LAST=0
-
-run_mlab_ndt() {
-  local now=$(date +%s)
-  local elapsed=$(( now - MLAB_LAST ))
-  if [ $elapsed -lt $MLAB_INTERVAL ]; then
-    return
-  fi
-  MLAB_LAST=$now
-
-  # Get nearest M-Lab server
-  local locate=$(curl -s --max-time 10 "https://locate.measurementlab.net/v2/nearest/ndt/ndt7" 2>/dev/null)
-  local dl_url=$(echo "$locate" | jq -r '.results[0].urls["wss:///ndt/v7/download"] // empty' 2>/dev/null)
-
-  if [ -z "$dl_url" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [MLAB] Could not locate server" >> "$LOG"
-    return
-  fi
-
-  # Simple download test via curl (creates NDT record on M-Lab server)
-  local start=$(date +%s%N)
-  local bytes=$(curl -s --max-time 10 -o /dev/null -w '%{size_download}' "${dl_url}" 2>/dev/null)
-  local end=$(date +%s%N)
-
-  local duration_ms=$(( (end - start) / 1000000 ))
-  local speed_mbps=0
-  if [ $duration_ms -gt 0 ]; then
-    speed_mbps=$(echo "$bytes $duration_ms" | awk '{printf "%.2f", ($1 * 8) / ($2 * 1000)}')
-  fi
-
-  sqlite3 "$DB" "INSERT INTO health (dest, latency_ms, loss_pct, rst_count, conn_count)
-    VALUES ('mlab-ndt7', $duration_ms, 0, 0, 0);"
-
-  echo "$(date '+%Y-%m-%d %H:%M:%S') [MLAB] NDT7 download: ${speed_mbps} Mbps (${bytes} bytes in ${duration_ms}ms)" >> "$LOG"
 }
 
 # Main loop
@@ -634,9 +631,6 @@ main() {
     fi
 
     sleep $CHECK_INTERVAL
-
-    # Periodic M-Lab NDT test (every 6h)
-    run_mlab_ndt
   done
 }
 
@@ -797,8 +791,22 @@ case "$1" in
       echo ""
       read -p "I understand and accept [y/N]: " confirm
       case $confirm in
-        [yY]) ${EDITOR:-nano} ${INSTALL_DIR}/whitelist.json
-          echo "Whitelist updated. Restart Xray to apply: systemctl restart xray" ;;
+        [yY])
+          ${EDITOR:-nano} ${INSTALL_DIR}/whitelist.json
+          # Rebuild routing rules from whitelist
+          echo "Rebuilding routing rules..."
+          DOMAINS=$(jq -r '.[]' ${INSTALL_DIR}/whitelist.json | jq -R . | jq -s .)
+          TMP=$(mktemp)
+          jq --argjson domains "$DOMAINS" '
+            .routing.rules = [
+              { "type": "field", "domain": $domains, "outboundTag": "direct" },
+              { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" },
+              { "type": "field", "port": "0-65535", "outboundTag": "block" }
+            ]
+          ' ${INSTALL_DIR}/config.json > "$TMP" && mv "$TMP" ${INSTALL_DIR}/config.json
+          systemctl restart xray 2>/dev/null
+          echo "Whitelist and routing rules updated. Xray restarted."
+          ;;
         *) echo "Cancelled." ;;
       esac
     else

@@ -5,4 +5,4 @@ compatibility_flags = ["nodejs_compat"]
 
 # [vars]
 # UUID = "your-uuid-here"
-# RELAY = "relay.example.com:443"
+# PROXYIP = "proxyip.example.com"  # Only needed for CF-hosted destinations
