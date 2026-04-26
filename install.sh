@@ -283,7 +283,24 @@ write_config() {
     "rules": [
       {
         "type": "field",
+        "domain": [
+          "business.tiktok.com","ads.tiktok.com","seller.tiktok.com",
+          "sellercentral.amazon.com","advertising.amazon.com",
+          "ads.google.com","merchants.google.com",
+          "business.facebook.com","www.facebook.com",
+          "admin.shopify.com","accounts.shopify.com",
+          "api.openai.com","chat.openai.com","claude.ai","gemini.google.com"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
         "ip": ["geoip:private"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "port": "0-65535",
         "outboundTag": "block"
       }
     ]
@@ -652,12 +669,22 @@ case "$1" in
     ;;
   morph)
     echo "Triggering manual rotation..."
-    # Read guard script and call rotate
-    source /usr/local/bin/ai-xray-guard
-    CURRENT_LATENCY=0; CURRENT_LOSS=0; CURRENT_RST=0
-    init_db
-    rotate_dest "manual"
-    echo "Done. New dest: $(get_current_dest)"
+    CONFIG="${INSTALL_DIR}/config.json"
+    POOL="${INSTALL_DIR}/dest-pool.json"
+    OLD=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$CONFIG")
+    POOL_SIZE=$(jq 'length' "$POOL")
+    IDX=$(jq --arg d "$OLD" 'to_entries[] | select(.value == $d) | .key' "$POOL" 2>/dev/null || echo 0)
+    NEXT=$(( (${IDX:-0} + 1) % POOL_SIZE ))
+    NEW=$(jq -r ".[$NEXT]" "$POOL")
+    SID=$(openssl rand -hex 4)
+    TMP=$(mktemp)
+    jq --arg dest "$NEW" --arg sid "$SID" '
+      .inbounds[0].streamSettings.realitySettings.dest = ($dest + ":443") |
+      .inbounds[0].streamSettings.realitySettings.serverNames = [$dest] |
+      .inbounds[0].streamSettings.realitySettings.shortIds = [$sid]
+    ' "$CONFIG" > "$TMP" && mv "$TMP" "$CONFIG"
+    systemctl restart xray
+    echo "Done. $OLD -> $NEW (shortId: $SID)"
     ;;
   dest)
     echo "Current dest: $(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' ${INSTALL_DIR}/config.json)"
@@ -665,8 +692,25 @@ case "$1" in
     jq -r '.[]' ${INSTALL_DIR}/dest-pool.json
     ;;
   whitelist)
-    echo "Whitelist domains:"
-    jq -r '.[]' ${INSTALL_DIR}/whitelist.json
+    if [ "$2" = "edit" ]; then
+      echo ""
+      echo -e "\033[1m==================== WARNING ====================\033[0m"
+      echo "Modifying the whitelist means you take full legal"
+      echo "responsibility for all traffic through this server."
+      echo -e "\033[1m=================================================\033[0m"
+      echo ""
+      read -p "I understand and accept [y/N]: " confirm
+      case $confirm in
+        [yY]) ${EDITOR:-nano} ${INSTALL_DIR}/whitelist.json
+          echo "Whitelist updated. Restart Xray to apply: systemctl restart xray" ;;
+        *) echo "Cancelled." ;;
+      esac
+    else
+      echo "Whitelist domains:"
+      jq -r '.[]' ${INSTALL_DIR}/whitelist.json
+      echo ""
+      echo "To edit: ai-xray whitelist edit"
+    fi
     ;;
   sub)
     cat ${INSTALL_DIR}/info.txt
