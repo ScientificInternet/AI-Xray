@@ -6,149 +6,259 @@ import { connect } from 'cloudflare:sockets';
 
 let cfgId = '';
 let cfgRelay = '';
-
 const WS_READY = 1;
 
 export default {
   async fetch(request, env) {
     cfgId = env.UUID || cfgId;
     cfgRelay = env.RELAY || cfgRelay;
-    if (!cfgId) return new Response('UUID not set', { status: 500 });
+    if (!cfgId) return new Response('Not configured', { status: 500 });
 
     const upgrade = request.headers.get('Upgrade');
     if (upgrade === 'websocket') {
-      return handleStream(request);
+      return handleWS(request);
     }
 
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/+/, '');
 
-    if (path === cfgId) {
-      return buildConfigPage(request);
-    }
-
-    if (path === `sub/${cfgId}`) {
-      return buildSubscription(request);
-    }
-
+    if (path === cfgId) return buildConfigPage(request);
+    if (path === `sub/${cfgId}`) return buildSubscription(request);
     return renderDecoy();
   }
 };
 
 function renderDecoy() {
   return new Response(
-    '<!DOCTYPE html><html><head><title>Welcome</title></head><body><h1>Service Running</h1><p>System operational.</p></body></html>',
+    '<!DOCTYPE html><html><head><title>Welcome</title></head><body><h1>Service Running</h1></body></html>',
     { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
   );
 }
 
-async function handleStream(request) {
-  const [client, server] = Object.values(new WebSocketPair());
-  server.accept({ allowHalfOpen: true });
+// ==================== WebSocket Handler ====================
 
-  // Decode early data from Sec-WebSocket-Protocol header
-  const earlyProto = request.headers.get('sec-websocket-protocol') || '';
+async function handleWS(request) {
+  const [client, server] = Object.values(new WebSocketPair());
+
+  // Decode early data from Sec-WebSocket-Protocol
+  const proto = request.headers.get('sec-websocket-protocol') || '';
   let earlyData = null;
-  if (earlyProto) {
+  if (proto) {
     try {
-      const raw = atob(earlyProto);
-      earlyData = new Uint8Array(raw.length);
-      for (let i = 0; i < raw.length; i++) earlyData[i] = raw.charCodeAt(i);
-    } catch (e) {
-      earlyData = null;
-    }
+      const raw = atob(proto);
+      earlyData = Uint8Array.from(raw, c => c.charCodeAt(0));
+    } catch (e) {}
   }
 
-  let headerDone = false;
+  server.accept();
+
+  // Create readable stream from WS - register handler IMMEDIATELY after accept
+  const wsReadable = makeWSReadable(server, earlyData);
+
+  // Process stream
+  processStream(wsReadable, server);
+
+  const headers = proto ? { 'sec-websocket-protocol': proto } : {};
+  return new Response(null, { status: 101, webSocket: client, headers });
+}
+
+function makeWSReadable(ws, earlyData) {
+  let streamCancelled = false;
+  return new ReadableStream({
+    start(controller) {
+      // Inject early data first
+      if (earlyData && earlyData.byteLength > 0) {
+        controller.enqueue(earlyData);
+      }
+      ws.addEventListener('message', (e) => {
+        if (!streamCancelled) {
+          const data = e.data;
+          controller.enqueue(data instanceof ArrayBuffer ? new Uint8Array(data) : data);
+        }
+      });
+      ws.addEventListener('close', () => {
+        if (!streamCancelled) {
+          try { controller.close(); } catch (e) {}
+        }
+      });
+      ws.addEventListener('error', (e) => {
+        try { controller.error(e); } catch (e2) {}
+      });
+    },
+    cancel() {
+      streamCancelled = true;
+      safeClose(ws);
+    }
+  });
+}
+
+async function processStream(readable, ws) {
   let tcpWriter = null;
+  let headerDone = false;
 
-  async function processChunk(chunk) {
-    const data = new Uint8Array(chunk);
+  const writable = new WritableStream({
+    async write(chunk) {
+      if (headerDone) {
+        // Relay subsequent data to TCP
+        if (tcpWriter) {
+          await tcpWriter.write(chunk);
+        }
+        return;
+      }
 
-    if (!headerDone) {
+      const data = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
       const parsed = parseHeader(data);
       if (parsed.error) {
-        safeClose(server);
+        safeClose(ws);
         return;
       }
 
       headerDone = true;
-      const responseHeader = new Uint8Array([parsed.version, 0]);
+      const respHeader = new Uint8Array([parsed.version, 0]);
 
-      // Connect: try direct first, then relay
-      let tcpSocket = null;
-      try {
-        tcpSocket = connect({ hostname: parsed.host, port: parsed.port });
-        await tcpSocket.opened;
-      } catch (e) {
-        tcpSocket = null;
-      }
-
-      // Fallback to relay (direct TCP, NOT HTTP CONNECT)
-      if (!tcpSocket && cfgRelay) {
-        try {
-          const relayHost = cfgRelay.split(':')[0];
-          tcpSocket = connect({ hostname: relayHost, port: parsed.port });
-          await tcpSocket.opened;
-        } catch (e) {
-          tcpSocket = null;
+      if (parsed.isUDP) {
+        if (parsed.port === 53) {
+          handleDNS(ws, respHeader, parsed.payload);
+        } else {
+          safeClose(ws);
         }
-      }
-
-      if (!tcpSocket) {
-        safeClose(server);
         return;
       }
 
-      // Keep writer for the lifetime of the connection
+      // TCP: connect and start relaying (don't await pipeToWS here)
+      const tcpSocket = await connectTCP(parsed.host, parsed.port, parsed.payload);
+      if (!tcpSocket) {
+        safeClose(ws);
+        return;
+      }
+
       tcpWriter = tcpSocket.writable.getWriter();
 
-      if (parsed.payload.byteLength > 0) {
-        await tcpWriter.write(parsed.payload);
-      }
-
-      // Pipe TCP responses back to WebSocket
-      pipeToWS(tcpSocket.readable, server, responseHeader);
-    } else {
-      if (tcpWriter) {
-        await tcpWriter.write(data);
-      }
-    }
-  }
-
-  // Process early data first if present
-  if (earlyData && earlyData.byteLength > 0) {
-    await processChunk(earlyData.buffer);
-  }
-
-  server.addEventListener('message', async (event) => {
-    try {
-      await processChunk(event.data);
-    } catch (e) {
-      safeClose(server);
-    }
+      // Start TCP→WS pipe in background (don't block this write())
+      pipeToWS(tcpSocket.readable, ws, respHeader).then(ok => {
+        if (!ok && cfgRelay) {
+          // No data received, retry with relay
+          retryWithRelay(parsed.host, parsed.port, parsed.payload, ws, respHeader);
+        }
+      });
+    },
+    close() {
+      if (tcpWriter) tcpWriter.close().catch(() => {});
+    },
+    abort() {
+      if (tcpWriter) tcpWriter.abort().catch(() => {});
+    },
   });
 
-  server.addEventListener('close', () => {
-    if (tcpWriter) tcpWriter.close().catch(() => {});
-  });
-
-  server.addEventListener('error', () => {
-    if (tcpWriter) tcpWriter.abort().catch(() => {});
-  });
-
-  const responseHeaders = earlyProto
-    ? { 'sec-websocket-protocol': earlyProto }
-    : {};
-
-  return new Response(null, {
-    status: 101,
-    webSocket: client,
-    headers: responseHeaders,
+  readable.pipeTo(writable).catch(() => {
+    safeClose(ws);
   });
 }
 
-// [ver(1)][id(16)][optLen(1)][opt(N)][cmd(1)][port(2)][addrType(1)][addr(N)][payload...]
+// ==================== TCP Handler ====================
+
+async function connectTCP(addr, port, rawData) {
+  // Try direct connection
+  try {
+    const tcp = connect({ hostname: addr, port });
+    await tcp.opened;
+    const writer = tcp.writable.getWriter();
+    await writer.write(rawData);
+    writer.releaseLock();
+    return tcp;
+  } catch (e) {}
+
+  // Try relay
+  if (cfgRelay) {
+    try {
+      const relayHost = cfgRelay.split(':')[0];
+      const tcp = connect({ hostname: relayHost, port });
+      await tcp.opened;
+      const writer = tcp.writable.getWriter();
+      await writer.write(rawData);
+      writer.releaseLock();
+      return tcp;
+    } catch (e) {}
+  }
+
+  return null;
+}
+
+async function retryWithRelay(addr, port, rawData, ws, respHeader) {
+  if (!cfgRelay) return;
+  try {
+    const relayHost = cfgRelay.split(':')[0];
+    const tcp = connect({ hostname: relayHost, port });
+    await tcp.opened;
+    const writer = tcp.writable.getWriter();
+    await writer.write(rawData);
+    writer.releaseLock();
+    await pipeToWS(tcp.readable, ws, respHeader);
+  } catch (e) {}
+  safeClose(ws);
+}
+
+async function pipeToWS(readable, ws, header) {
+  let headerSent = false;
+  let hasData = false;
+
+  try {
+    const reader = readable.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (ws.readyState !== WS_READY) break;
+
+      hasData = true;
+
+      if (!headerSent) {
+        const merged = new Uint8Array(header.byteLength + value.byteLength);
+        merged.set(header, 0);
+        merged.set(new Uint8Array(value), header.byteLength);
+        ws.send(merged.buffer);
+        headerSent = true;
+      } else {
+        ws.send(value);
+      }
+    }
+  } catch (e) {}
+
+  return hasData;
+}
+
+// ==================== DNS/UDP Handler ====================
+
+async function handleDNS(ws, respHeader, rawData) {
+  try {
+    // Extract DNS query from UDP packet: [2 bytes length][dns payload]
+    if (rawData.byteLength < 2) {
+      safeClose(ws);
+      return;
+    }
+
+    const dnsLen = (rawData[0] << 8) | rawData[1];
+    const dnsQuery = rawData.slice(2, 2 + dnsLen);
+
+    // Forward to Cloudflare DoH
+    const resp = await fetch('https://1.1.1.1/dns-query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/dns-message' },
+      body: dnsQuery,
+    });
+
+    const dnsResult = new Uint8Array(await resp.arrayBuffer());
+    const sizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
+
+    if (ws.readyState === WS_READY) {
+      ws.send(await new Blob([respHeader, sizeBuffer, dnsResult]).arrayBuffer());
+    }
+  } catch (e) {}
+
+  safeClose(ws);
+}
+
+// ==================== Protocol Parser ====================
+
 function parseHeader(buffer) {
   if (buffer.byteLength < 24) return { error: true };
 
@@ -161,7 +271,8 @@ function parseHeader(buffer) {
   if (cmdIdx >= buffer.byteLength) return { error: true };
 
   const cmd = buffer[cmdIdx];
-  if (cmd !== 1) return { error: true }; // TCP only
+  const isUDP = cmd === 2;
+  if (cmd !== 1 && cmd !== 2) return { error: true };
 
   const portIdx = cmdIdx + 1;
   if (portIdx + 1 >= buffer.byteLength) return { error: true };
@@ -202,31 +313,10 @@ function parseHeader(buffer) {
       return { error: true };
   }
 
-  return { version, host, port, payload: buffer.slice(addrEnd), error: false };
+  return { version, host, port, isUDP, payload: buffer.slice(addrEnd), error: false };
 }
 
-async function pipeToWS(readable, ws, header) {
-  let headerSent = false;
-  try {
-    const reader = readable.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (ws.readyState !== WS_READY) break;
-
-      if (!headerSent) {
-        const merged = new Uint8Array(header.byteLength + value.byteLength);
-        merged.set(header, 0);
-        merged.set(new Uint8Array(value), header.byteLength);
-        ws.send(merged.buffer);
-        headerSent = true;
-      } else {
-        ws.send(value);
-      }
-    }
-  } catch (e) {}
-  safeClose(ws);
-}
+// ==================== Utilities ====================
 
 function safeClose(ws) {
   try { if (ws.readyState <= 1) ws.close(); } catch (e) {}
