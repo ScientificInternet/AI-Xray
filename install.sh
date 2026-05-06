@@ -3,7 +3,7 @@
 # https://github.com/ScientificInternet/AI-Xray
 # MIT License
 
-set -e
+set -euo pipefail
 
 # ==================== Colors ====================
 RED='\033[0;31m'
@@ -27,10 +27,10 @@ WHITELIST_DOMAINS='["business.tiktok.com","ads.tiktok.com","seller.tiktok.com","
 
 # ==================== Utilities ====================
 
-info() { echo -e "${CYAN}[AI-Xray]${PLAIN} $1"; }
-ok() { echo -e "${GREEN}[AI-Xray]${PLAIN} $1"; }
-warn() { echo -e "${YELLOW}[AI-Xray]${PLAIN} $1"; }
-fail() { echo -e "${RED}[AI-Xray]${PLAIN} $1"; exit 1; }
+info() { echo -e "${CYAN}[AI-Xray]${PLAIN} $1" >&2; }
+ok() { echo -e "${GREEN}[AI-Xray]${PLAIN} $1" >&2; }
+warn() { echo -e "${YELLOW}[AI-Xray]${PLAIN} $1" >&2; }
+fail() { echo -e "${RED}[AI-Xray]${PLAIN} $1" >&2; exit 1; }
 
 check_root() {
   [[ $EUID -ne 0 ]] && fail "Please run as root"
@@ -66,11 +66,11 @@ install_deps() {
 
   case $OS in
     ubuntu|debian)
-      apt-get update -qq
-      apt-get install -y curl wget jq unzip sqlite3 >/dev/null 2>&1
+      apt-get update -qq || fail "apt-get update failed"
+      apt-get install -y curl wget jq unzip sqlite3 || fail "apt-get install failed"
       ;;
     centos|rhel|rocky|almalinux)
-      yum install -y curl wget jq unzip sqlite >/dev/null 2>&1
+      yum install -y curl wget jq unzip sqlite || fail "yum install failed"
       ;;
     *)
       fail "Unsupported OS: $OS"
@@ -111,7 +111,7 @@ install_xray() {
     return
   fi
 
-  bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) install >/dev/null 2>&1
+  bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) install || fail "Xray installation script failed"
 
   if ! command -v xray >/dev/null 2>&1; then
     fail "Xray installation failed"
