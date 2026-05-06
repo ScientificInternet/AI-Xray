@@ -289,4 +289,4 @@ main() {
   show_result
 }
 
-main "${@}"
+main
