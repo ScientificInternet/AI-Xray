@@ -126,12 +126,6 @@ if [[ -z "$SKIP_CHECK" ]]; then
         echo -e "${red}  Consider using a different VPS provider${none}"
         echo -e "${red}  Recommended: US/EU native IP with premium route${none}"
         echo ""
-        read -p "Continue installation anyway? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            echo -e "${yellow}Installation cancelled${none}"
-            exit 0
-        fi
     fi
     
     # Cleanup
