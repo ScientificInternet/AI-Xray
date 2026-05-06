@@ -27,10 +27,10 @@ WHITELIST_DOMAINS='["business.tiktok.com","ads.tiktok.com","seller.tiktok.com","
 
 # ==================== Utilities ====================
 
-info() { echo -e "${CYAN}[AI-Xray]${PLAIN} $1" >&2; }
-ok() { echo -e "${GREEN}[AI-Xray]${PLAIN} $1" >&2; }
-warn() { echo -e "${YELLOW}[AI-Xray]${PLAIN} $1" >&2; }
-fail() { echo -e "${RED}[AI-Xray]${PLAIN} $1" >&2; exit 1; }
+info() { echo -e "${CYAN}[AI-Xray]${PLAIN} ${1:-}" >&2; }
+ok() { echo -e "${GREEN}[AI-Xray]${PLAIN} ${1:-}" >&2; }
+warn() { echo -e "${YELLOW}[AI-Xray]${PLAIN} ${1:-}" >&2; }
+fail() { echo -e "${RED}[AI-Xray]${PLAIN} ${1:-}" >&2; exit 1; }
 
 check_root() {
   [[ $EUID -ne 0 ]] && fail "Please run as root"
