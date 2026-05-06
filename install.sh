@@ -3,7 +3,7 @@
 # https://github.com/ScientificInternet/AI-Xray
 # MIT License
 
-set -euo pipefail
+set -eo pipefail
 
 # ==================== Colors ====================
 RED='\033[0;31m'
@@ -42,9 +42,7 @@ detect_system() {
   info "Detecting system..."
 
   if [ -f /etc/os-release ]; then
-    set +u
     . /etc/os-release
-    set -u
     OS=$ID
     OS_VERSION=$VERSION_ID
   else
