@@ -27,9 +27,9 @@ WHITELIST_DOMAINS='["business.tiktok.com","ads.tiktok.com","seller.tiktok.com","
 
 # ==================== Utilities ====================
 
-info() { echo -e "${CYAN}[AI-Xray]${PLAIN} ${1:-}" >&2; }
-ok() { echo -e "${GREEN}[AI-Xray]${PLAIN} ${1:-}" >&2; }
-warn() { echo -e "${YELLOW}[AI-Xray]${PLAIN} ${1:-}" >&2; }
+info() { echo -e "${CYAN}[AI-Xray]${PLAIN} ${1:-}"; }
+ok() { echo -e "${GREEN}[AI-Xray]${PLAIN} ${1:-}"; }
+warn() { echo -e "${YELLOW}[AI-Xray]${PLAIN} ${1:-}"; }
 fail() { echo -e "${RED}[AI-Xray]${PLAIN} ${1:-}" >&2; exit 1; }
 
 check_root() {
