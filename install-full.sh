@@ -64,7 +64,7 @@ if [[ -z "$SKIP_CHECK" ]]; then
     bash "$VPSCHECK_TMP" -r 10 > /tmp/vps_ip_check.txt 2>&1
     
     echo -e "${cyan}Running route check...${none}"
-    # Skipped: Route check takes too long > /tmp/vps_route_check.txt 2>&1
+    bash "$VPSCHECK_TMP" -r 16 > /tmp/vps_route_check.txt 2>&1
     
     # Parse results
     echo ""
@@ -81,7 +81,7 @@ if [[ -z "$SKIP_CHECK" ]]; then
     IP_TYPE=$(grep -i "IP类型\|IP Type" /tmp/vps_ip_check.txt | head -1)
     
     # Check route quality
-    ROUTE_QUALITY=0  # Skipped
+    ROUTE_QUALITY=$(grep -i "回程路由\|Route" /tmp/vps_route_check.txt | grep -i "CN2\|GIA\|CMI\|精品" | wc -l)
     
     # Display results
     echo ""
@@ -111,13 +111,13 @@ if [[ -z "$SKIP_CHECK" ]]; then
     [[ $GEMINI_OK -gt 0 ]] && ((SCORE++))
     [[ $ROUTE_QUALITY -gt 0 ]] && ((SCORE+=2))
     
-    if [[ $SCORE -ge 1 ]]; then
+    if [[ $SCORE -ge 4 ]]; then
         echo -e "${green}✓ Excellent VPS for cross-border e-commerce${none}"
         echo -e "${green}  This VPS is highly recommended for:${none}"
         echo -e "${green}  • TikTok Business / Amazon Seller${none}"
         echo -e "${green}  • Google Ads / Facebook Ads${none}"
         echo -e "${green}  • AI tools (ChatGPT/Claude/Gemini)${none}"
-    elif [[ $SCORE -ge 1 ]]; then
+    elif [[ $SCORE -ge 2 ]]; then
         echo -e "${yellow}⚠ Good VPS, but with limitations${none}"
         echo -e "${yellow}  Suitable for most e-commerce tasks${none}"
         echo -e "${yellow}  Some AI services may be restricted${none}"
