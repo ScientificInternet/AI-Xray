@@ -1,167 +1,234 @@
 #!/bin/bash
-# AI-Xray Professional Mode Installer (Simplified)
+# AI-Xray Professional Installer with VPS Quality Check
 # https://github.com/ScientificInternet/AI-Xray
-# MIT License
 
-set -eo pipefail
+# 等待1秒避免curl输出冲突
+sleep 1
 
-# ==================== Colors ====================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-CYAN='\033[0;36m'
-PLAIN='\033[0m'
+# Colors
+red='\e[91m'
+green='\e[92m'
+yellow='\e[93m'
+cyan='\e[96m'
+blue='\e[94m'
+none='\e[0m'
 
-# ==================== Config ====================
-INSTALL_DIR="/etc/ai-xray"
-CONFIG_FILE="${INSTALL_DIR}/config.json"
-REALITY_KEY="${INSTALL_DIR}/reality.key"
+echo -e "${cyan}========================================${none}"
+echo -e "${cyan}AI-Xray Professional Installer${none}"
+echo -e "${cyan}Cross-border E-commerce Accelerator${none}"
+echo -e "${cyan}========================================${none}"
+echo ""
 
-# dest pool by region
-DEST_POOL_US='["addons.mozilla.org","www.cisco.com","www.apple.com","www.microsoft.com","www.cloudflare.com"]'
-DEST_POOL_EU='["addons.mozilla.org","www.cisco.com","www.samsung.com","www.apple.com","www.oracle.com"]'
-DEST_POOL_AP='["www.samsung.com","www.apple.com","addons.mozilla.org","www.cisco.com","www.asus.com"]'
+# Check root
+if [[ $EUID -ne 0 ]]; then
+   echo -e "${red}Error: Please run as root${none}"
+   exit 1
+fi
 
-# whitelist domains
-WHITELIST_DOMAINS='["business.tiktok.com","ads.tiktok.com","seller.tiktok.com","sellercentral.amazon.com","advertising.amazon.com","ads.google.com","merchants.google.com","business.facebook.com","www.facebook.com","admin.shopify.com","accounts.shopify.com","api.openai.com","chat.openai.com","claude.ai","gemini.google.com"]'
-
-# ==================== Utilities ====================
-
-info() { echo -e "${CYAN}[AI-Xray]${PLAIN} ${1:-}"; }
-ok() { echo -e "${GREEN}[AI-Xray]${PLAIN} ${1:-}"; }
-warn() { echo -e "${YELLOW}[AI-Xray]${PLAIN} ${1:-}"; }
-fail() { echo -e "${RED}[AI-Xray]${PLAIN} ${1:-}" >&2; exit 1; }
-
-check_root() {
-  [[ $EUID -ne 0 ]] && fail "Please run as root"
-}
-
-# ==================== System Detection ====================
-
-detect_system() {
-  info "Detecting system..."
-
-  if [ -f /etc/os-release ]; then
+# Detect system
+if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     OS=$ID
-    OS_VERSION=$VERSION_ID
-  else
-    fail "Cannot detect OS. Requires Debian/Ubuntu/CentOS."
-  fi
+else
+    echo -e "${red}Error: Cannot detect OS${none}"
+    exit 1
+fi
 
-  ARCH=$(uname -m)
-  case $ARCH in
-    x86_64) ARCH="64" ;;
-    aarch64|arm64) ARCH="arm64-v8a" ;;
-    *) fail "Unsupported architecture: $ARCH" ;;
-  esac
+echo -e "${green}✓ System: $OS${none}"
 
-  ok "System: $OS $OS_VERSION ($ARCH)"
-}
+# ==================== VPS Quality Check ====================
+echo ""
+echo -e "${cyan}========================================${none}"
+echo -e "${cyan}Step 1: VPS Quality Check${none}"
+echo -e "${cyan}========================================${none}"
+echo ""
+echo -e "${yellow}Checking your VPS quality for cross-border e-commerce...${none}"
+echo -e "${yellow}This will take 2-3 minutes.${none}"
+echo ""
 
-# ==================== Dependencies ====================
+# Download vpscheck
+VPSCHECK_URL="https://raw.githubusercontent.com/adsorgcn/vpscheck/main/vpscheck.sh"
+VPSCHECK_TMP="/tmp/vpscheck_$$.sh"
 
-install_deps() {
-  info "Installing dependencies..."
+if ! curl -fsSL "$VPSCHECK_URL" -o "$VPSCHECK_TMP"; then
+    echo -e "${yellow}Warning: Cannot download vpscheck, skipping quality check${none}"
+    SKIP_CHECK=1
+fi
 
-  case $OS in
+if [[ -z "$SKIP_CHECK" ]]; then
+    # Run key checks: AI services + IP info + Route
+    echo -e "${cyan}Running AI services check...${none}"
+    bash "$VPSCHECK_TMP" -r 5 -u > /tmp/vps_ai_check.txt 2>&1
+    
+    echo -e "${cyan}Running IP analysis...${none}"
+    bash "$VPSCHECK_TMP" -r 10 > /tmp/vps_ip_check.txt 2>&1
+    
+    echo -e "${cyan}Running route check...${none}"
+    bash "$VPSCHECK_TMP" -r 16 > /tmp/vps_route_check.txt 2>&1
+    
+    # Parse results
+    echo ""
+    echo -e "${cyan}========================================${none}"
+    echo -e "${cyan}VPS Quality Report${none}"
+    echo -e "${cyan}========================================${none}"
+    
+    # Check AI services
+    CHATGPT_OK=$(grep -i "chatgpt" /tmp/vps_ai_check.txt | grep -i "解锁\|yes\|可用" | wc -l)
+    CLAUDE_OK=$(grep -i "claude" /tmp/vps_ai_check.txt | grep -i "解锁\|yes\|可用" | wc -l)
+    GEMINI_OK=$(grep -i "gemini" /tmp/vps_ai_check.txt | grep -i "解锁\|yes\|可用" | wc -l)
+    
+    # Check IP type
+    IP_TYPE=$(grep -i "IP类型\|IP Type" /tmp/vps_ip_check.txt | head -1)
+    
+    # Check route quality
+    ROUTE_QUALITY=$(grep -i "回程路由\|Route" /tmp/vps_route_check.txt | grep -i "CN2\|GIA\|CMI\|精品" | wc -l)
+    
+    # Display results
+    echo ""
+    echo -e "${blue}AI Services:${none}"
+    [[ $CHATGPT_OK -gt 0 ]] && echo -e "  ${green}✓ ChatGPT${none}" || echo -e "  ${red}✗ ChatGPT${none}"
+    [[ $CLAUDE_OK -gt 0 ]] && echo -e "  ${green}✓ Claude${none}" || echo -e "  ${red}✗ Claude${none}"
+    [[ $GEMINI_OK -gt 0 ]] && echo -e "  ${green}✓ Gemini${none}" || echo -e "  ${red}✗ Gemini${none}"
+    
+    echo ""
+    echo -e "${blue}IP Information:${none}"
+    echo -e "  $IP_TYPE"
+    
+    echo ""
+    echo -e "${blue}Route Quality:${none}"
+    if [[ $ROUTE_QUALITY -gt 0 ]]; then
+        echo -e "  ${green}✓ Premium route detected${none}"
+    else
+        echo -e "  ${yellow}⚠ Standard route${none}"
+    fi
+    
+    # Overall recommendation
+    echo ""
+    echo -e "${cyan}========================================${none}"
+    SCORE=0
+    [[ $CHATGPT_OK -gt 0 ]] && ((SCORE++))
+    [[ $CLAUDE_OK -gt 0 ]] && ((SCORE++))
+    [[ $GEMINI_OK -gt 0 ]] && ((SCORE++))
+    [[ $ROUTE_QUALITY -gt 0 ]] && ((SCORE+=2))
+    
+    if [[ $SCORE -ge 4 ]]; then
+        echo -e "${green}✓ Excellent VPS for cross-border e-commerce${none}"
+        echo -e "${green}  This VPS is highly recommended for:${none}"
+        echo -e "${green}  • TikTok Business / Amazon Seller${none}"
+        echo -e "${green}  • Google Ads / Facebook Ads${none}"
+        echo -e "${green}  • AI tools (ChatGPT/Claude/Gemini)${none}"
+    elif [[ $SCORE -ge 2 ]]; then
+        echo -e "${yellow}⚠ Good VPS, but with limitations${none}"
+        echo -e "${yellow}  Suitable for most e-commerce tasks${none}"
+        echo -e "${yellow}  Some AI services may be restricted${none}"
+    else
+        echo -e "${red}✗ This VPS may not be ideal${none}"
+        echo -e "${red}  Consider using a different VPS provider${none}"
+        echo -e "${red}  Recommended: US/EU native IP with premium route${none}"
+        echo ""
+        read -p "Continue installation anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "${yellow}Installation cancelled${none}"
+            exit 0
+        fi
+    fi
+    
+    # Cleanup
+    rm -f "$VPSCHECK_TMP" /tmp/vps_*_check.txt
+fi
+
+# ==================== Install Dependencies ====================
+echo ""
+echo -e "${cyan}========================================${none}"
+echo -e "${cyan}Step 2: Install Dependencies${none}"
+echo -e "${cyan}========================================${none}"
+echo ""
+
+case $OS in
     ubuntu|debian)
-      apt-get update -qq || fail "apt-get update failed"
-      apt-get install -y curl wget jq unzip sqlite3 || fail "apt-get install failed"
-      ;;
+        apt-get update -qq
+        apt-get install -y curl wget unzip openssl >/dev/null 2>&1
+        ;;
     centos|rhel|rocky|almalinux)
-      yum install -y curl wget jq unzip sqlite || fail "yum install failed"
-      ;;
+        yum install -y curl wget unzip openssl >/dev/null 2>&1
+        ;;
     *)
-      fail "Unsupported OS: $OS"
-      ;;
-  esac
+        echo -e "${red}Unsupported OS: $OS${none}"
+        exit 1
+        ;;
+esac
 
-  ok "Dependencies installed"
-}
+echo -e "${green}✓ Dependencies installed${none}"
 
-# ==================== BBR ====================
+# ==================== Install Xray ====================
+echo ""
+echo -e "${cyan}========================================${none}"
+echo -e "${cyan}Step 3: Install Xray-core${none}"
+echo -e "${cyan}========================================${none}"
+echo ""
 
-enable_bbr() {
-  info "Enabling BBR..."
+bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) install >/dev/null 2>&1
 
-  if sysctl net.ipv4.tcp_congestion_control 2>/dev/null | grep -q bbr; then
-    ok "BBR already enabled"
-    return
-  fi
+if ! command -v xray >/dev/null 2>&1; then
+    echo -e "${red}✗ Xray installation failed${none}"
+    exit 1
+fi
 
-  echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-  echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-  sysctl -p >/dev/null 2>&1
-
-  if sysctl net.ipv4.tcp_congestion_control 2>/dev/null | grep -q bbr; then
-    ok "BBR enabled"
-  else
-    warn "BBR may not be supported by your kernel"
-  fi
-}
-
-# ==================== Xray Installation ====================
-
-install_xray() {
-  info "Installing Xray-core..."
-
-  if command -v xray >/dev/null 2>&1; then
-    warn "Xray already installed, skipping..."
-    return
-  fi
-
-  bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) install || fail "Xray installation script failed"
-
-  if ! command -v xray >/dev/null 2>&1; then
-    fail "Xray installation failed"
-  fi
-
-  local ver=$(xray version 2>/dev/null | head -1 | awk '{print $2}')
-  ok "Xray $ver installed"
-}
+xray_version=$(xray version 2>/dev/null | head -1 | awk '{print $2}')
+echo -e "${green}✓ Xray $xray_version installed${none}"
 
 # ==================== Generate Keys ====================
+echo ""
+echo -e "${cyan}========================================${none}"
+echo -e "${cyan}Step 4: Generate Reality Keys${none}"
+echo -e "${cyan}========================================${none}"
+echo ""
 
-generate_keys() {
-  info "Generating Reality keys..."
+keys=$(xray x25519)
+PRIVATE_KEY=$(echo "$keys" | grep "Private" | awk '{print $NF}')
+PUBLIC_KEY=$(echo "$keys" | grep "Public" | awk '{print $NF}')
+UUID=$(xray uuid)
+SHORT_ID=$(openssl rand -hex 8)
 
-  local keys=$(xray x25519)
-  PRIVATE_KEY=$(echo "$keys" | grep "Private" | awk '{print $NF}')
-  PUBLIC_KEY=$(echo "$keys" | grep "Public" | awk '{print $NF}')
+echo -e "${green}✓ Keys generated${none}"
 
-  UUID=$(xray uuid)
-  SHORT_ID=$(openssl rand -hex 8)
+# ==================== Detect Server Info ====================
+echo ""
+echo -e "${cyan}========================================${none}"
+echo -e "${cyan}Step 5: Detect Server Information${none}"
+echo -e "${cyan}========================================${none}"
+echo ""
 
-  # Detect region and select dest pool (with fallback)
-  local country=$(curl -s --max-time 3 https://ipapi.co/country_code/ 2>/dev/null || \
-                  curl -s --max-time 3 https://ifconfig.co/country-iso 2>/dev/null || \
-                  echo "US")
-  case $country in
-    CN|HK|TW|SG|JP|KR) DEST_POOL=$DEST_POOL_AP ;;
-    GB|DE|FR|NL|IT|ES) DEST_POOL=$DEST_POOL_EU ;;
-    *) DEST_POOL=$DEST_POOL_US ;;
-  esac
+SERVER_IP=$(curl -s --max-time 3 https://api.ipify.org || curl -s --max-time 3 https://ifconfig.me || echo "YOUR_SERVER_IP")
+REGION=$(curl -s --max-time 3 https://ifconfig.co/country-iso || echo "US")
 
-  DEST=$(echo "$DEST_POOL" | jq -r '.[0]')
+case $REGION in
+    US|CA|MX)
+        DEST="addons.mozilla.org"
+        ;;
+    GB|DE|FR|NL|IT|ES)
+        DEST="www.cisco.com"
+        ;;
+    *)
+        DEST="www.apple.com"
+        ;;
+esac
 
-  # Save reality keys
-  cat > "${REALITY_KEY}" << KEYEOF
-private: ${PRIVATE_KEY}
-public: ${PUBLIC_KEY}
-KEYEOF
+echo -e "${green}✓ Server IP: $SERVER_IP${none}"
+echo -e "${green}✓ Region: $REGION${none}"
+echo -e "${green}✓ SNI: $DEST${none}"
 
-  ok "Keys generated (dest: $DEST)"
-}
+# ==================== Write Configuration ====================
+echo ""
+echo -e "${cyan}========================================${none}"
+echo -e "${cyan}Step 6: Configure Xray Reality${none}"
+echo -e "${cyan}========================================${none}"
+echo ""
 
-# ==================== Write Config ====================
+mkdir -p /etc/ai-xray
 
-write_config() {
-  info "Writing Xray configuration..."
-
-  mkdir -p "$INSTALL_DIR"
-
-  cat > "$CONFIG_FILE" << EOF
+cat > /usr/local/etc/xray/config.json << EOF
 {
   "log": {
     "loglevel": "warning"
@@ -175,7 +242,7 @@ write_config() {
       "settings": {
         "clients": [
           {
-            "id": "${UUID}",
+            "id": "$UUID",
             "flow": "xtls-rprx-vision"
           }
         ],
@@ -186,11 +253,11 @@ write_config() {
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "${DEST}:443",
+          "dest": "$DEST:443",
           "xver": 0,
-          "serverNames": ["${DEST}"],
-          "privateKey": "${PRIVATE_KEY}",
-          "shortIds": ["", "${SHORT_ID}"]
+          "serverNames": ["$DEST"],
+          "privateKey": "$PRIVATE_KEY",
+          "shortIds": ["", "$SHORT_ID"]
         }
       },
       "sniffing": {
@@ -214,7 +281,23 @@ write_config() {
     "rules": [
       {
         "type": "field",
-        "domain": $(echo "$WHITELIST_DOMAINS" | jq -c '.'),
+        "domain": [
+          "business.tiktok.com",
+          "ads.tiktok.com",
+          "seller.tiktok.com",
+          "sellercentral.amazon.com",
+          "advertising.amazon.com",
+          "ads.google.com",
+          "merchants.google.com",
+          "business.facebook.com",
+          "www.facebook.com",
+          "admin.shopify.com",
+          "accounts.shopify.com",
+          "api.openai.com",
+          "chat.openai.com",
+          "claude.ai",
+          "gemini.google.com"
+        ],
         "outboundTag": "direct"
       },
       {
@@ -227,64 +310,70 @@ write_config() {
 }
 EOF
 
-  ok "Configuration written"
-}
+echo -e "${green}✓ Configuration written${none}"
 
-# ==================== Start Services ====================
+# ==================== Enable BBR ====================
+echo ""
+echo -e "${cyan}========================================${none}"
+echo -e "${cyan}Step 7: Enable BBR Congestion Control${none}"
+echo -e "${cyan}========================================${none}"
+echo ""
 
-start_services() {
-  info "Starting Xray..."
+sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
+echo "net.ipv4.tcp_congestion_control = bbr" >> /etc/sysctl.conf
+echo "net.core.default_qdisc = fq" >> /etc/sysctl.conf
+sysctl -p >/dev/null 2>&1
 
-  systemctl enable xray >/dev/null 2>&1
-  systemctl restart xray
+echo -e "${green}✓ BBR enabled${none}"
 
-  sleep 2
-  if systemctl is-active xray >/dev/null 2>&1; then
-    ok "Xray running"
-  else
-    fail "Xray failed to start. Check: journalctl -u xray"
-  fi
-}
+# ==================== Start Service ====================
+echo ""
+echo -e "${cyan}========================================${none}"
+echo -e "${cyan}Step 8: Start Xray Service${none}"
+echo -e "${cyan}========================================${none}"
+echo ""
 
-# ==================== Show Result ====================
+systemctl restart xray
+systemctl enable xray >/dev/null 2>&1
 
-show_result() {
-  local server_ip=$(curl -s --max-time 3 https://api.ipify.org 2>/dev/null || \
-                    curl -s --max-time 3 https://ifconfig.me 2>/dev/null || \
-                    curl -s --max-time 3 https://icanhazip.com 2>/dev/null || \
-                    ip addr show | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d/ -f1 | head -1)
+if systemctl is-active --quiet xray; then
+    echo -e "${green}✓ Xray service started${none}"
+else
+    echo -e "${red}✗ Xray service failed to start${none}"
+    echo -e "${yellow}Check logs: journalctl -u xray -n 50${none}"
+    exit 1
+fi
 
-  echo ""
-  echo -e "${GREEN}========================================${PLAIN}"
-  echo -e "${GREEN}  AI-Xray Installation Complete${PLAIN}"
-  echo -e "${GREEN}========================================${PLAIN}"
-  echo ""
-  echo -e "${CYAN}Server:${PLAIN} $server_ip:443"
-  echo -e "${CYAN}UUID:${PLAIN} $UUID"
-  echo -e "${CYAN}Public Key:${PLAIN} $PUBLIC_KEY"
-  echo -e "${CYAN}Short ID:${PLAIN} $SHORT_ID"
-  echo -e "${CYAN}SNI:${PLAIN} $DEST"
-  echo ""
-  echo -e "${CYAN}VLESS Link:${PLAIN}"
-  echo "vless://${UUID}@${server_ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DEST}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&headerType=none#AI-Xray"
-  echo ""
-  echo -e "${YELLOW}Note:${PLAIN} Default whitelist only allows cross-border e-commerce platforms."
-  echo -e "${YELLOW}Edit whitelist:${PLAIN} nano ${CONFIG_FILE}"
-  echo ""
-}
-
-# ==================== Main ====================
-
-main() {
-  check_root
-  detect_system
-  install_deps
-  enable_bbr
-  install_xray
-  generate_keys
-  write_config
-  start_services
-  show_result
-}
-
-main
+# ==================== Installation Complete ====================
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}Installation Complete!${none}"
+echo -e "${green}========================================${none}"
+echo ""
+echo -e "${cyan}Server Information:${none}"
+echo -e "  Address: ${green}$SERVER_IP:443${none}"
+echo -e "  UUID: ${green}$UUID${none}"
+echo -e "  Public Key: ${green}$PUBLIC_KEY${none}"
+echo -e "  Short ID: ${green}$SHORT_ID${none}"
+echo -e "  SNI: ${green}$DEST${none}"
+echo ""
+echo -e "${cyan}VLESS Link:${none}"
+echo "vless://${UUID}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DEST}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&headerType=none#AI-Xray"
+echo ""
+echo -e "${cyan}Whitelist (Cross-border E-commerce):${none}"
+echo -e "  ${green}✓${none} TikTok Business / Ads / Seller"
+echo -e "  ${green}✓${none} Amazon Seller Central / Advertising"
+echo -e "  ${green}✓${none} Google Ads / Merchant Center"
+echo -e "  ${green}✓${none} Facebook Business / Ads"
+echo -e "  ${green}✓${none} Shopify Admin"
+echo -e "  ${green}✓${none} ChatGPT / Claude / Gemini"
+echo ""
+echo -e "${yellow}Note:${none} Only whitelisted domains are allowed by default."
+echo -e "${yellow}Edit whitelist:${none} nano /usr/local/etc/xray/config.json"
+echo ""
+echo -e "${cyan}Management Commands:${none}"
+echo -e "  systemctl status xray   # Check status"
+echo -e "  systemctl restart xray  # Restart service"
+echo -e "  journalctl -u xray -f   # View logs"
+echo ""
