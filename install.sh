@@ -42,7 +42,9 @@ detect_system() {
   info "Detecting system..."
 
   if [ -f /etc/os-release ]; then
+    set +u
     . /etc/os-release
+    set -u
     OS=$ID
     OS_VERSION=$VERSION_ID
   else
