@@ -38,6 +38,140 @@ echo -e "${cyan}========================================${none}"
 echo -e "${cyan}AI-Xray Professional Installer${none}"
 echo -e "${cyan}Cross-border E-commerce Accelerator${none}"
 echo -e "${cyan}========================================${none}"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 
 # Check root
@@ -56,13 +190,415 @@ fi
 echo -e "${green}✓ System: $OS${none}"
 
 # ==================== VPS Quality Check ====================
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${cyan}========================================${none}"
 echo -e "${cyan}Step 1: VPS Quality Check${none}"
 echo -e "${cyan}========================================${none}"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${yellow}Checking your VPS quality for cross-border e-commerce...${none}"
 echo -e "${yellow}This will take 2-3 minutes.${none}"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 
 # Download vpscheck
@@ -158,10 +694,278 @@ if [[ -z "$SKIP_CHECK" ]]; then
 fi
 
 # ==================== Install Dependencies ====================
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${cyan}========================================${none}"
 echo -e "${cyan}Step 2: Install Dependencies${none}"
 echo -e "${cyan}========================================${none}"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 
 case $OS in
@@ -180,10 +984,278 @@ esac
 echo -e "${green}✓ Dependencies installed${none}"
 
 # ==================== Install Xray ====================
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${cyan}========================================${none}"
 echo -e "${cyan}Step 3: Install Xray-core${none}"
 echo -e "${cyan}========================================${none}"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 
 # Install Xray-core with pinned version and checksum verification
@@ -217,10 +1289,278 @@ xray_version=$(xray version 2>/dev/null | head -1 | awk '{print $2}')
 echo -e "${green}✓ Xray $xray_version installed${none}"
 
 # ==================== Generate Keys ====================
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${cyan}========================================${none}"
 echo -e "${cyan}Step 4: Generate Reality Keys${none}"
 echo -e "${cyan}========================================${none}"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 
 keys=$(xray x25519)
@@ -232,10 +1572,278 @@ SHORT_ID=$(openssl rand -hex 8)
 echo -e "${green}✓ Keys generated${none}"
 
 # ==================== Detect Server Info ====================
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${cyan}========================================${none}"
 echo -e "${cyan}Step 5: Detect Server Information${none}"
 echo -e "${cyan}========================================${none}"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 
 SERVER_IP=$(curl -s --max-time 3 https://api.ipify.org || curl -s --max-time 3 https://ifconfig.me || echo "YOUR_SERVER_IP")
@@ -258,10 +1866,278 @@ echo -e "${green}✓ Region: $REGION${none}"
 echo -e "${green}✓ SNI: $DEST${none}"
 
 # ==================== Write Configuration ====================
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${cyan}========================================${none}"
 echo -e "${cyan}Step 6: Configure Xray Reality${none}"
 echo -e "${cyan}========================================${none}"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 
 mkdir -p /etc/ai-xray
@@ -372,10 +2248,278 @@ EOF
 echo -e "${green}✓ Configuration written${none}"
 
 # ==================== Enable BBR ====================
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${cyan}========================================${none}"
 echo -e "${cyan}Step 7: Enable BBR Congestion Control${none}"
 echo -e "${cyan}========================================${none}"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 
 sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
@@ -387,10 +2531,278 @@ sysctl -p >/dev/null 2>&1
 echo -e "${green}✓ BBR enabled${none}"
 
 # ==================== Start Service ====================
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${cyan}========================================${none}"
 echo -e "${cyan}Step 8: Start Xray Service${none}"
 echo -e "${cyan}========================================${none}"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 
 systemctl restart xray
@@ -403,10 +2815,278 @@ else
 fi
 
 # ==================== Installation Complete ====================
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${green}========================================${none}"
 echo -e "${green}Installation Complete!${none}"
 echo -e "${green}========================================${none}"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${cyan}Server Information:${none}"
 echo -e "  Address: ${green}$SERVER_IP:443${none}"
@@ -414,9 +3094,277 @@ echo -e "  UUID: ${green}$UUID${none}"
 echo -e "  Public Key: ${green}$PUBLIC_KEY${none}"
 echo -e "  Short ID: ${green}$SHORT_ID${none}"
 echo -e "  SNI: ${green}$DEST${none}"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${cyan}VLESS Link:${none}"
 echo "vless://${UUID}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DEST}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&headerType=none#AI-Xray"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${cyan}Whitelist (Cross-border E-commerce):${none}"
 echo -e "  ${green}✓${none} TikTok Business / Ads / Seller"
@@ -425,12 +3373,414 @@ echo -e "  ${green}✓${none} Google Ads / Merchant Center"
 echo -e "  ${green}✓${none} Facebook Business / Ads"
 echo -e "  ${green}✓${none} Shopify Admin"
 echo -e "  ${green}✓${none} ChatGPT / Claude / Gemini"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${yellow}Note:${none} Only whitelisted domains are allowed by default."
 echo -e "${yellow}Edit whitelist:${none} nano /usr/local/etc/xray/config.json"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
 echo -e "${cyan}Management Commands:${none}"
 echo -e "  systemctl status xray   # Check status"
 echo -e "  systemctl restart xray  # Restart service"
 echo -e "  journalctl -u xray -f   # View logs"
+# ==================== Interactive Whitelist Configuration ====================
+
+whitelist_interactive_config() {
+    local CONFIG_FILE="/usr/local/etc/xray/config.json"
+    
+    while true; do
+        echo ""
+        echo -e "${cyan}========================================${none}"
+        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
+        echo -e "${cyan}========================================${none}"
+        echo ""
+        
+        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        
+        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
+        echo ""
+        echo -e "${yellow}Options / 选项：${none}"
+        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
+        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
+        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
+        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
+        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
+        echo ""
+        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
+        read -r CHOICE
+        
+        CHOICE=${CHOICE:-k}
+        
+        case "$CHOICE" in
+            v|V)
+                echo ""
+                echo -e "${cyan}All domains / 所有域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                ;;
+            d|D)
+                echo ""
+                echo -e "${cyan}Current domains / 当前域名：${none}"
+                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
+                echo ""
+                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
+                read -r NUM
+                
+                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
+                    INDEX=$((NUM - 1))
+                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
+                    
+                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
+                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
+                        mv /tmp/config.tmp "$CONFIG_FILE"
+                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
+                        systemctl restart xray
+                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    else
+                        echo -e "${red}Invalid number / 无效编号${none}"
+                    fi
+                else
+                    echo -e "${red}Invalid input / 无效输入${none}"
+                fi
+                ;;
+            a|A)
+                echo ""
+                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
+                read -r DOMAIN
+                
+                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                else
+                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
+                fi
+                ;;
+            c|C)
+                echo ""
+                echo -e "${red}========================================${none}"
+                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
+                echo -e "${red}========================================${none}"
+                echo ""
+                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
+                echo -e "${yellow}您即将移除所有域名限制。${none}"
+                echo ""
+                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
+                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
+                echo ""
+                echo -e "${cyan}Legal Notice / 法律声明：${none}"
+                echo -e "  • This software is designed for cross-border e-commerce"
+                echo -e "    本软件专为跨境电商设计"
+                echo -e "  • Removing restrictions is at your own risk"
+                echo -e "    移除限制风险自负"
+                echo -e "  • You are responsible for compliance with local laws"
+                echo -e "    您需遵守当地法律"
+                echo -e "  • The author assumes no liability for misuse"
+                echo -e "    作者不承担滥用责任"
+                echo ""
+                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
+                read -r CONFIRM
+                
+                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
+                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
+                    mv /tmp/config.tmp "$CONFIG_FILE"
+                    echo ""
+                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
+                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
+                    systemctl restart xray
+                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
+                    echo ""
+                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
+                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
+                    return 0
+                else
+                    echo -e "${yellow}Cancelled / 已取消${none}"
+                fi
+                ;;
+            k|K|"")
+                echo ""
+                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
+                return 0
+                ;;
+            *)
+                echo -e "${red}Invalid option / 无效选项${none}"
+                ;;
+        esac
+    done
+}
+
+whitelist_interactive_config
+
+echo ""
+echo -e "${green}========================================${none}"
+echo -e "${green}  Setup Complete / 安装完成${none}"
+echo -e "${green}========================================${none}"
+
 echo ""
