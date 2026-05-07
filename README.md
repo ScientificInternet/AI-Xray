@@ -134,19 +134,18 @@ vless://xxxxxxxx@1.2.3.4:443?encryption=none&flow=xtls-rprx-vision...
 
 ### 修改白名单
 
-编辑配置文件：
+运行交互式管理工具：
 
 ```bash
-nano /etc/ai-xray/config.json
+bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/main/whitelist-manager.sh)
 ```
 
-找到 `routing.rules[0].domain` 数组，添加或删除域名。
-
-修改后重启：
-
-```bash
-systemctl restart xray
-```
+菜单选项：
+- **[d]** 删除域名 - 选择编号即可删除
+- **[a]** 添加域名 - 输入域名添加到白名单
+- **[c]** 清空白名单 - 移除所有限制（全局代理）
+- **[r]** 重启服务 - 应用修改
+- **[q]** 退出
 
 ⚠️ **法律提示**：本项目定位为跨境电商网络加速器。删除白名单限制后，法律责任由用户自行承担。
 
@@ -180,9 +179,9 @@ rm -f /usr/local/bin/xray
 
 | 商家 | 线路 | 价格 | 适合 |
 |------|------|------|------|
-| [搬瓦工](https://bandwagonhost.com) | CN2 GIA | $49.99/年 | 电信用户 |
-| [DMIT](https://www.dmit.io) | CMI | $6.9/月 | 移动用户 |
-| [Vultr](https://www.vultr.com) | 普通线路 | $5/月 | 预算有限 |
+| [搬瓦工](https://bwh81.net/aff.php?aff=20308) | CN2 GIA | $49.99/年 | 电信用户 |
+| [DMIT](https://www.dmit.io/aff.php?aff=3138) | CMI | $6.9/月 | 移动用户 |
+| [Vultr](https://www.vultr.com/?ref=9631926-9J) | 普通线路 | $5/月 | 预算有限 |
 
 ---
 
