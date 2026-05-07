@@ -80,11 +80,11 @@ if [[ -z "$SKIP_CHECK" ]]; then
     
     # Check ChatGPT
     CHATGPT_OK=0
-    local unsupported_chatgpt="CN HK RU IR KP SY CU BY VE"
-    local country=$(curl -s ipinfo.io/country 2>/dev/null)
+    unsupported_chatgpt="CN HK RU IR KP SY CU BY VE"
+    country=$(curl -s ipinfo.io/country 2>/dev/null)
     if ! echo "$unsupported_chatgpt" | grep -qw "$country"; then
-        local chatgpt_response=$(curl -s -4 --max-time 10 -H "Content-Type: application/json" -w "\n%{http_code}" "https://api.openai.com/v1/models" 2>/dev/null)
-        local chatgpt_status=$(echo "$chatgpt_response" | tail -n 1)
+        chatgpt_response=$(curl -s -4 --max-time 10 -H "Content-Type: application/json" -w "\n%{http_code}" "https://api.openai.com/v1/models" 2>/dev/null)
+        chatgpt_status=$(echo "$chatgpt_response" | tail -n 1)
         if [[ "$chatgpt_status" == "401" || "$chatgpt_status" == "400" ]]; then
             CHATGPT_OK=1
         fi
@@ -92,10 +92,10 @@ if [[ -z "$SKIP_CHECK" ]]; then
     
     # Check Claude
     CLAUDE_OK=0
-    local unsupported_claude="CN HK RU IR KP SY CU BY"
+    unsupported_claude="CN HK RU IR KP SY CU BY"
     if ! echo "$unsupported_claude" | grep -qw "$country"; then
-        local claude_response=$(curl -s -4 --max-time 10 -X POST -H "Content-Type: application/json" -w "\n%{http_code}" "https://api.anthropic.com/v1/messages" 2>/dev/null)
-        local claude_status=$(echo "$claude_response" | tail -n 1)
+        claude_response=$(curl -s -4 --max-time 10 -X POST -H "Content-Type: application/json" -w "\n%{http_code}" "https://api.anthropic.com/v1/messages" 2>/dev/null)
+        claude_status=$(echo "$claude_response" | tail -n 1)
         if [[ "$claude_status" == "401" || "$claude_status" == "400" ]]; then
             CLAUDE_OK=1
         fi
@@ -103,9 +103,9 @@ if [[ -z "$SKIP_CHECK" ]]; then
     
     # Check Gemini
     GEMINI_OK=0
-    local unsupported_gemini="CN RU IR KP SY CU BY"
+    unsupported_gemini="CN RU IR KP SY CU BY"
     if ! echo "$unsupported_gemini" | grep -qw "$country"; then
-        local gemini_response=$(curl -s -4 --max-time 10 "https://generativelanguage.googleapis.com/v1beta/models?key=invalid" 2>/dev/null)
+        gemini_response=$(curl -s -4 --max-time 10 "https://generativelanguage.googleapis.com/v1beta/models?key=invalid" 2>/dev/null)
         if echo "$gemini_response" | grep -qi "API key not valid\|models\|error"; then
             GEMINI_OK=1
         fi
