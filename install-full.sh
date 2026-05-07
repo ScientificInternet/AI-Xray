@@ -616,6 +616,9 @@ if [[ -z "$SKIP_CHECK" ]]; then
     bash "$VPSCHECK_TMP" -r 5 -u > /tmp/vps_ai_check.txt 2>&1
     
     echo -e "${cyan}Running IP analysis...${none}"
+    
+    echo -e "${cyan}Running streaming unlock check...${none}"
+    curl -fsSL https://raw.githubusercontent.com/lmc999/RegionRestrictionCheck/main/check.sh | bash -s -- -M 4 -E en > /tmp/vps_streaming_check.txt 2>&1
     bash "$VPSCHECK_TMP" -r 10 > /tmp/vps_ip_check.txt 2>&1
     
     echo -e "${cyan}Running route check...${none}"
@@ -632,6 +635,12 @@ if [[ -z "$SKIP_CHECK" ]]; then
     CLAUDE_OK=$(grep -i "claude" /tmp/vps_ai_check.txt | grep -i "解锁\|yes\|可用" | wc -l)
     GEMINI_OK=$(grep -i "gemini" /tmp/vps_ai_check.txt | grep -i "解锁\|yes\|可用" | wc -l)
     
+    # Check streaming services
+    NETFLIX_OK=$(grep -i "netflix" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
+    DISNEY_OK=$(grep -i "disney" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
+    YOUTUBE_OK=$(grep -i "youtube premium" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
+    SPOTIFY_OK=$(grep -i "spotify" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
+    
     # Check IP type
     IP_TYPE=$(grep -i "IP类型\|IP Type" /tmp/vps_ip_check.txt | head -1)
     
@@ -641,6 +650,16 @@ if [[ -z "$SKIP_CHECK" ]]; then
     # Display results
     echo ""
     echo -e "${blue}AI Services:${none}"
+    [[ $CHATGPT_OK -gt 0 ]] && echo -e "  ${green}✓ ChatGPT${none}" || echo -e "  ${red}✗ ChatGPT${none}"
+    [[ $CLAUDE_OK -gt 0 ]] && echo -e "  ${green}✓ Claude${none}" || echo -e "  ${red}✗ Claude${none}"
+    [[ $GEMINI_OK -gt 0 ]] && echo -e "  ${green}✓ Gemini${none}" || echo -e "  ${red}✗ Gemini${none}"
+    
+    echo ""
+    echo -e "${blue}Streaming Services / 流媒体服务:${none}"
+    [[ $NETFLIX_OK -gt 0 ]] && echo -e "  ${green}✓ Netflix${none}" || echo -e "  ${red}✗ Netflix${none}"
+    [[ $DISNEY_OK -gt 0 ]] && echo -e "  ${green}✓ Disney+${none}" || echo -e "  ${red}✗ Disney+${none}"
+    [[ $YOUTUBE_OK -gt 0 ]] && echo -e "  ${green}✓ YouTube Premium${none}" || echo -e "  ${red}✗ YouTube Premium${none}"
+    [[ $SPOTIFY_OK -gt 0 ]] && echo -e "  ${green}✓ Spotify${none}" || echo -e "  ${red}✗ Spotify${none}"
     [[ $CHATGPT_OK -gt 0 ]] && echo -e "  ${green}✓ ChatGPT${none}" || echo -e "  ${red}✗ ChatGPT${none}"
     [[ $CLAUDE_OK -gt 0 ]] && echo -e "  ${green}✓ Claude${none}" || echo -e "  ${red}✗ Claude${none}"
     [[ $GEMINI_OK -gt 0 ]] && echo -e "  ${green}✓ Gemini${none}" || echo -e "  ${red}✗ Gemini${none}"
@@ -664,7 +683,8 @@ if [[ -z "$SKIP_CHECK" ]]; then
     [[ $CHATGPT_OK -gt 0 ]] && ((SCORE++))
     [[ $CLAUDE_OK -gt 0 ]] && ((SCORE++))
     [[ $GEMINI_OK -gt 0 ]] && ((SCORE++))
-    [[ $ROUTE_QUALITY -gt 0 ]] && ((SCORE+=2))
+    [[ $NETFLIX_OK -gt 0 ]] && ((SCORE++))
+    [[ $DISNEY_OK -gt 0 ]] && ((SCORE++))
     
     if [[ $SCORE -ge 4 ]]; then
         echo -e "${green}✓ Excellent VPS for cross-border e-commerce${none}"

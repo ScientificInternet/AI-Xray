@@ -82,13 +82,13 @@ if [[ -z "$SKIP_CHECK" ]]; then
     echo -e "${cyan}Running IP analysis...${none}"
     bash "$VPSCHECK_TMP" -r 10 > /tmp/vps_ip_check.txt 2>&1
     
-    echo -e "${cyan}Running route check...${none}"
-    # Skipped: Route check takes too long > /tmp/vps_route_check.txt 2>&1
+    echo -e "${cyan}Running streaming unlock check...${none}"
+    curl -fsSL https://raw.githubusercontent.com/lmc999/RegionRestrictionCheck/main/check.sh | bash -s -- -M 4 -E en > /tmp/vps_streaming_check.txt 2>&1
     
     # Parse results
     echo ""
     echo -e "${cyan}========================================${none}"
-    echo -e "${cyan}VPS Quality Report${none}"
+    echo -e "${cyan}VPS Quality Report / VPS 质量报告${none}"
     echo -e "${cyan}========================================${none}"
     
     # Check AI services
@@ -96,30 +96,32 @@ if [[ -z "$SKIP_CHECK" ]]; then
     CLAUDE_OK=$(grep -i "claude" /tmp/vps_ai_check.txt | grep -i "解锁\|yes\|可用" | wc -l)
     GEMINI_OK=$(grep -i "gemini" /tmp/vps_ai_check.txt | grep -i "解锁\|yes\|可用" | wc -l)
     
+    # Check streaming services
+    NETFLIX_OK=$(grep -i "netflix" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
+    DISNEY_OK=$(grep -i "disney" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
+    YOUTUBE_OK=$(grep -i "youtube premium" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
+    SPOTIFY_OK=$(grep -i "spotify" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
+    
     # Check IP type
     IP_TYPE=$(grep -i "IP类型\|IP Type" /tmp/vps_ip_check.txt | head -1)
     
-    # Check route quality
-    ROUTE_QUALITY=0  # Skipped
-    
     # Display results
     echo ""
-    echo -e "${blue}AI Services:${none}"
+    echo -e "${blue}AI Services / AI 服务:${none}"
     [[ $CHATGPT_OK -gt 0 ]] && echo -e "  ${green}✓ ChatGPT${none}" || echo -e "  ${red}✗ ChatGPT${none}"
     [[ $CLAUDE_OK -gt 0 ]] && echo -e "  ${green}✓ Claude${none}" || echo -e "  ${red}✗ Claude${none}"
     [[ $GEMINI_OK -gt 0 ]] && echo -e "  ${green}✓ Gemini${none}" || echo -e "  ${red}✗ Gemini${none}"
     
     echo ""
-    echo -e "${blue}IP Information:${none}"
-    echo -e "  $IP_TYPE"
+    echo -e "${blue}Streaming Services / 流媒体服务:${none}"
+    [[ $NETFLIX_OK -gt 0 ]] && echo -e "  ${green}✓ Netflix${none}" || echo -e "  ${red}✗ Netflix${none}"
+    [[ $DISNEY_OK -gt 0 ]] && echo -e "  ${green}✓ Disney+${none}" || echo -e "  ${red}✗ Disney+${none}"
+    [[ $YOUTUBE_OK -gt 0 ]] && echo -e "  ${green}✓ YouTube Premium${none}" || echo -e "  ${red}✗ YouTube Premium${none}"
+    [[ $SPOTIFY_OK -gt 0 ]] && echo -e "  ${green}✓ Spotify${none}" || echo -e "  ${red}✗ Spotify${none}"
     
     echo ""
-    echo -e "${blue}Route Quality:${none}"
-    if [[ $ROUTE_QUALITY -gt 0 ]]; then
-        echo -e "  ${green}✓ Premium route detected${none}"
-    else
-        echo -e "  ${yellow}⚠ Standard route${none}"
-    fi
+    echo -e "${blue}IP Information / IP 信息:${none}"
+    echo -e "  $IP_TYPE"
     
     # Overall recommendation
     echo ""
@@ -128,22 +130,23 @@ if [[ -z "$SKIP_CHECK" ]]; then
     [[ $CHATGPT_OK -gt 0 ]] && ((SCORE++))
     [[ $CLAUDE_OK -gt 0 ]] && ((SCORE++))
     [[ $GEMINI_OK -gt 0 ]] && ((SCORE++))
-    [[ $ROUTE_QUALITY -gt 0 ]] && ((SCORE+=2))
+    [[ $NETFLIX_OK -gt 0 ]] && ((SCORE++))
+    [[ $DISNEY_OK -gt 0 ]] && ((SCORE++))
     
     if [[ $SCORE -ge 4 ]]; then
-        echo -e "${green}✓ Excellent VPS for cross-border e-commerce${none}"
-        echo -e "${green}  This VPS is highly recommended for:${none}"
-        echo -e "${green}  • TikTok Business / Amazon Seller${none}"
-        echo -e "${green}  • Google Ads / Facebook Ads${none}"
-        echo -e "${green}  • AI tools (ChatGPT/Claude/Gemini)${none}"
+        echo -e "${green}✓ Excellent VPS / 优秀 VPS${none}"
+        echo -e "${green}  Recommended for / 推荐用于:${none}"
+        echo -e "${green}  • Cross-border e-commerce / 跨境电商${none}"
+        echo -e "${green}  • AI tools / AI 工具${none}"
+        echo -e "${green}  • Streaming services / 流媒体服务${none}"
     elif [[ $SCORE -ge 2 ]]; then
-        echo -e "${yellow}⚠ Good VPS, but with limitations${none}"
-        echo -e "${yellow}  Suitable for most e-commerce tasks${none}"
-        echo -e "${yellow}  Some AI services may be restricted${none}"
+        echo -e "${yellow}⚠ Good VPS / 良好 VPS${none}"
+        echo -e "${yellow}  Suitable for most tasks / 适合大多数任务${none}"
+        echo -e "${yellow}  Some services may be restricted / 部分服务可能受限${none}"
     else
-        echo -e "${red}✗ This VPS may not be ideal${none}"
-        echo -e "${red}  Consider using a different VPS provider${none}"
-        echo -e "${red}  Recommended: US/EU native IP with premium route${none}"
+        echo -e "${red}✗ Poor VPS / 较差 VPS${none}"
+        echo -e "${red}  Consider a different provider / 建议更换服务商${none}"
+        echo -e "${red}  Recommended: US/EU native IP / 推荐：美欧原生 IP${none}"
         echo ""
     fi
     
