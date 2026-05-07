@@ -122,10 +122,10 @@ if [[ -z "$SKIP_CHECK" ]]; then
     
     # 测试延迟
     declare -A TARGETS=(
-        ["hongkong"]="hk.cloudflare.com"
-        ["singapore"]="sg.cloudflare.com"
-        ["tokyo"]="jp.cloudflare.com"
-        ["losangeles"]="lax.cloudflare.com"
+        ["hongkong"]="www.hk"
+        ["singapore"]="www.gov.sg"
+        ["tokyo"]="www.yahoo.co.jp"
+        ["losangeles"]="www.ucla.edu"
     )
     
     declare -A ROUTE_RESULTS
@@ -543,7 +543,7 @@ whitelist_interactive_config() {
         echo ""
         
         # Count domains
-        DOMAIN_COUNT=$(jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+        DOMAIN_COUNT=$(python3 -c "import json; data=json.load(open('$CONFIG_FILE')); print(sum(len(r.get('domain',[])) for r in data.get('routing',{}).get('rules',[]) if r.get('outboundTag')=='direct'))" 2>/dev/null || echo "0")
         
         echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
         echo ""
