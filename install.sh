@@ -306,8 +306,10 @@ fi
 echo -e "${cyan}Verifying checksum...${none}"
 echo "${XRAY_INSTALL_SHA256}  ${XRAY_INSTALL_TMP}" | sha256sum -c - >/dev/null 2>&1
 if [[ $? -ne 0 ]]; then
-    error_exit "Checksum verification failed"
     rm -f "$XRAY_INSTALL_TMP"
+    error_exit "Checksum verification failed"
+fi
+
 echo -e "${cyan}Installing Xray-core...${none}"
 bash "$XRAY_INSTALL_TMP" install >/dev/null 2>&1
 rm -f "$XRAY_INSTALL_TMP"
