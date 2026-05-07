@@ -77,7 +77,39 @@ fi
 if [[ -z "$SKIP_CHECK" ]]; then
     # Run key checks: AI services + IP info + Route
     echo -e "${cyan}Running AI services check...${none}"
-    bash "$VPSCHECK_TMP" -r 5 -u > /tmp/vps_ai_check.txt 2>&1
+    
+    # Check ChatGPT
+    CHATGPT_OK=0
+    local unsupported_chatgpt="CN HK RU IR KP SY CU BY VE"
+    local country=$(curl -s ipinfo.io/country 2>/dev/null)
+    if ! echo "$unsupported_chatgpt" | grep -qw "$country"; then
+        local chatgpt_response=$(curl -s -4 --max-time 10 -H "Content-Type: application/json" -w "\n%{http_code}" "https://api.openai.com/v1/models" 2>/dev/null)
+        local chatgpt_status=$(echo "$chatgpt_response" | tail -n 1)
+        if [[ "$chatgpt_status" == "401" || "$chatgpt_status" == "400" ]]; then
+            CHATGPT_OK=1
+        fi
+    fi
+    
+    # Check Claude
+    CLAUDE_OK=0
+    local unsupported_claude="CN HK RU IR KP SY CU BY"
+    if ! echo "$unsupported_claude" | grep -qw "$country"; then
+        local claude_response=$(curl -s -4 --max-time 10 -X POST -H "Content-Type: application/json" -w "\n%{http_code}" "https://api.anthropic.com/v1/messages" 2>/dev/null)
+        local claude_status=$(echo "$claude_response" | tail -n 1)
+        if [[ "$claude_status" == "401" || "$claude_status" == "400" ]]; then
+            CLAUDE_OK=1
+        fi
+    fi
+    
+    # Check Gemini
+    GEMINI_OK=0
+    local unsupported_gemini="CN RU IR KP SY CU BY"
+    if ! echo "$unsupported_gemini" | grep -qw "$country"; then
+        local gemini_response=$(curl -s -4 --max-time 10 "https://generativelanguage.googleapis.com/v1beta/models?key=invalid" 2>/dev/null)
+        if echo "$gemini_response" | grep -qi "API key not valid\|models\|error"; then
+            GEMINI_OK=1
+        fi
+    fi
     
     echo -e "${cyan}Running IP analysis...${none}"
     bash "$VPSCHECK_TMP" -r 10 > /tmp/vps_ip_check.txt 2>&1
@@ -135,27 +167,31 @@ if [[ -z "$SKIP_CHECK" ]]; then
         target_host="${TARGETS[$target_name]}"
         latency=$(ping -c 3 -W 2 "$target_host" 2>/dev/null | grep 'avg' | awk -F'/' '{print $5}' | cut -d'.' -f1)
         
-        if [[ -n "$latency" && "$latency" != "0" ]]; then
-            key="${SOURCE_REGION}_${target_name}"
-            ref="${LATENCY_REF[$key]}"
+        key="${SOURCE_REGION}_${target_name}"
+        ref="${LATENCY_REF[$key]}"
+        
+        if [[ -z "$latency" || "$latency" == "0" ]]; then
+            # Ping failed
+            ROUTE_RESULTS[$target_name]="failed|0|0"
+        elif [[ -n "$ref" ]]; then
+            standard=$(echo "$ref" | cut -d'|' -f1)
+            tolerance=$(echo "$ref" | cut -d'|' -f2)
             
-            if [[ -n "$ref" ]]; then
-                standard=$(echo "$ref" | cut -d'|' -f1)
-                tolerance=$(echo "$ref" | cut -d'|' -f2)
-                
-                # 判断路由质量
-                if [[ $latency -le $tolerance ]]; then
-                    ROUTE_RESULTS[$target_name]="direct|$latency|$standard"
-                    ((ROUTE_SCORE++))
+            # 判断路由质量
+            if [[ $latency -le $tolerance ]]; then
+                ROUTE_RESULTS[$target_name]="direct|$latency|$standard"
+                ((ROUTE_SCORE++))
+            else
+                excess=$((latency - standard))
+                if [[ $excess -gt 100 ]]; then
+                    ROUTE_RESULTS[$target_name]="detour_major|$latency|$standard"
                 else
-                    excess=$((latency - standard))
-                    if [[ $excess -gt 100 ]]; then
-                        ROUTE_RESULTS[$target_name]="detour_major|$latency|$standard"
-                    else
-                        ROUTE_RESULTS[$target_name]="detour_minor|$latency|$standard"
-                    fi
+                    ROUTE_RESULTS[$target_name]="detour_minor|$latency|$standard"
                 fi
             fi
+        else
+            # No reference data
+            ROUTE_RESULTS[$target_name]="unknown|$latency|0"
         fi
     done
     
@@ -167,11 +203,6 @@ if [[ -z "$SKIP_CHECK" ]]; then
     echo -e "${cyan}========================================${none}"
     echo -e "${cyan}VPS Quality Report / VPS 质量报告${none}"
     echo -e "${cyan}========================================${none}"
-    
-    # Check AI services
-    CHATGPT_OK=$(grep -i "chatgpt" /tmp/vps_ai_check.txt | grep -i "解锁\|yes\|可用" | wc -l)
-    CLAUDE_OK=$(grep -i "claude" /tmp/vps_ai_check.txt | grep -i "解锁\|yes\|可用" | wc -l)
-    GEMINI_OK=$(grep -i "gemini" /tmp/vps_ai_check.txt | grep -i "解锁\|yes\|可用" | wc -l)
     
     # Check streaming services
     NETFLIX_OK=$(grep -i "netflix" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
@@ -213,6 +244,12 @@ if [[ -z "$SKIP_CHECK" ]]; then
             detour_major)
                 echo -e "  ${red}✗ ${target}: ${latency}ms${none} (Standard: ${standard}ms, +$((latency - standard))ms)"
                 echo -e "    ${red}Major detour detected / 严重绕路${none}"
+                ;;
+            failed)
+                echo -e "  ${red}✗ ${target}: ${none}${red}Ping failed / 检测失败${none}"
+                ;;
+            unknown)
+                echo -e "  ${yellow}? ${target}: ${latency}ms${none} (No reference data / 无参考数据)"
                 ;;
         esac
     done
