@@ -24,20 +24,20 @@ AI驱动的跨境电商网络加速器。
 
 ## 免费模式部署
 
-我们推荐使用成熟稳定的 [edgetunnel](https://github.com/cmliu/edgetunnel) 项目（27k+ stars）。
+使用 [AI-Xray Free](https://github.com/ScientificInternet/AI-Xray-Free)，基于 edgetunnel，零成本 5 分钟部署。
 
 ### 快速部署
 
-1. **Fork 项目**：访问 [edgetunnel](https://github.com/cmliu/edgetunnel)，点击右上角 Fork
+1. **Fork 项目**：访问 [AI-Xray Free](https://github.com/ScientificInternet/AI-Xray-Free)，点击右上角 Fork
 2. **部署到 CF Pages**：
    - 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
    - Workers & Pages → 创建 → Pages → 连接到 Git
-   - 选择 edgetunnel 项目 → 开始设置
+   - 选择 AI-Xray-Free 项目 → 开始设置
    - 环境变量添加：`ADMIN` = 你的管理员密码
    - 保存并部署
 3. **访问后台**：`https://你的项目.pages.dev/admin`
 
-详细教程：[edgetunnel 官方文档](https://github.com/cmliu/edgetunnel#readme)
+详细教程：[AI-Xray Free 部署指南](https://github.com/ScientificInternet/AI-Xray-Free#部署教程)
 
 ---
 
@@ -131,12 +131,14 @@ vless://xxxxxxxx@1.2.3.4:443?encryption=none&flow=xtls-rprx-vision...
 
 ## 客户端推荐
 
-| 平台 | 客户端 | 下载 |
-|------|--------|------|
-| Windows | v2rayN | [GitHub](https://github.com/2dust/v2rayN/releases) |
-| macOS | V2rayU | [GitHub](https://github.com/yanue/V2rayU/releases) |
-| iOS | Shadowrocket | App Store（需美区账号） |
-| Android | v2rayNG | [GitHub](https://github.com/2dust/v2rayNG/releases) |
+| 平台 | 客户端 | 下载 | 教程 |
+|------|--------|------|------|
+| Windows | v2rayN | [GitHub](https://github.com/2dust/v2rayN/releases) | [入门教程](https://ssr.dedyn.io/windows/v2rayn/) |
+| macOS | ClashX Meta | [GitHub](https://github.com/MetaCubeX/ClashX.Meta/releases) | [入门教程](https://ssr.dedyn.io/macos/clashx-meta/) |
+| iOS | Shadowrocket | App Store（需美区账号） | [入门教程](https://ssr.dedyn.io/ios/shadowrocket/) |
+| Android | v2rayNG | [GitHub](https://github.com/2dust/v2rayNG/releases) | [入门教程](https://ssr.dedyn.io/android/v2rayng/) |
+
+更多客户端教程：[ssr.dedyn.io](https://ssr.dedyn.io)
 
 ---
 
@@ -225,8 +227,15 @@ rm -f /usr/local/bin/xray
 ## 致谢
 
 - [Xray-core](https://github.com/XTLS/Xray-core) - 核心协议
-- [edgetunnel](https://github.com/cmliu/edgetunnel) - CF Workers 免费模式
+- [edgetunnel](https://github.com/cmliu/edgetunnel) - CF Workers 免费模式基础
 - [mack-a/v2ray-agent](https://github.com/mack-a/v2ray-agent) - 安装脚本参考
+
+---
+
+## 相关项目
+
+- [AI-Xray Free](https://github.com/ScientificInternet/AI-Xray-Free) - 免费版，基于 Cloudflare，零成本部署
+- [ssr.dedyn.io](https://ssr.dedyn.io) - 客户端入门教程，22个客户端全覆盖
 
 ---
 
