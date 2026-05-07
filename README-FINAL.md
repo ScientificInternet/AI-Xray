@@ -122,7 +122,7 @@ vless://xxxxxxxx@1.2.3.4:443?encryption=none&flow=xtls-rprx-vision...
 编辑配置文件：
 
 ```bash
-nano /etc/ai-xray/config.json
+nano /usr/local/etc/xray/config.json
 ```
 
 找到 `routing.rules[0].domain` 数组，添加或删除域名。

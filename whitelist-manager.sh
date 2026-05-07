@@ -2,7 +2,7 @@
 # AI-Xray Whitelist Manager
 # Interactive menu for managing domain whitelist
 
-CONFIG_FILE="/etc/ai-xray/config.json"
+CONFIG_FILE="/usr/local/etc/xray/config.json"
 
 # Colors
 red='\e[91m'
@@ -71,6 +71,13 @@ delete_domain() {
         return
     fi
     
+    # Validate input is a number
+    if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
+        echo -e "${red}Invalid selection: must be a number${none}"
+        sleep 2
+        return
+    fi
+    
     # Get domain at index
     DOMAIN=$(jq -r ".routing.rules[0].domain[$((choice-1))]" "$CONFIG_FILE" 2>/dev/null)
     
@@ -101,8 +108,16 @@ add_domain() {
         return
     fi
     
-    # Add domain to array
-    jq ".routing.rules[0].domain += [\"$domain\"]" "$CONFIG_FILE" > /tmp/config.tmp && mv /tmp/config.tmp "$CONFIG_FILE"
+    # Validate domain format: letters, numbers, dots, hyphens only
+    if ! [[ "$domain" =~ ^[A-Za-z0-9.-]+$ ]]; then
+        echo -e "${red}Invalid domain format${none}"
+        echo -e "${yellow}Only letters, numbers, dots, and hyphens allowed${none}"
+        sleep 2
+        return
+    fi
+    
+    # Add domain to array using --arg for safety
+    jq --arg domain "$domain" '.routing.rules[0].domain += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp && mv /tmp/config.tmp "$CONFIG_FILE"
     
     echo -e "${green}✓ Domain added: $domain${none}"
     echo -e "${yellow}Remember to restart Xray service (option 'r')${none}"

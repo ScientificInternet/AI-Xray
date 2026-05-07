@@ -111,13 +111,13 @@ if [[ -z "$SKIP_CHECK" ]]; then
     [[ $GEMINI_OK -gt 0 ]] && ((SCORE++))
     [[ $ROUTE_QUALITY -gt 0 ]] && ((SCORE+=2))
     
-    if [[ $SCORE -ge 1 ]]; then
+    if [[ $SCORE -ge 4 ]]; then
         echo -e "${green}✓ Excellent VPS for cross-border e-commerce${none}"
         echo -e "${green}  This VPS is highly recommended for:${none}"
         echo -e "${green}  • TikTok Business / Amazon Seller${none}"
         echo -e "${green}  • Google Ads / Facebook Ads${none}"
         echo -e "${green}  • AI tools (ChatGPT/Claude/Gemini)${none}"
-    elif [[ $SCORE -ge 1 ]]; then
+    elif [[ $SCORE -ge 2 ]]; then
         echo -e "${yellow}⚠ Good VPS, but with limitations${none}"
         echo -e "${yellow}  Suitable for most e-commerce tasks${none}"
         echo -e "${yellow}  Some AI services may be restricted${none}"
@@ -162,7 +162,30 @@ echo -e "${cyan}Step 3: Install Xray-core${none}"
 echo -e "${cyan}========================================${none}"
 echo ""
 
-bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) install >/dev/null 2>&1
+# Install Xray-core with pinned version and checksum verification
+XRAY_INSTALL_COMMIT="e741a4f5"
+XRAY_INSTALL_SHA256="7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555"
+XRAY_INSTALL_URL="https://raw.githubusercontent.com/XTLS/Xray-install/${XRAY_INSTALL_COMMIT}/install-release.sh"
+XRAY_INSTALL_TMP="/tmp/xray-install-$$.sh"
+
+echo -e "${cyan}Downloading Xray installer (pinned: ${XRAY_INSTALL_COMMIT})...${none}"
+if ! curl -fsSL "$XRAY_INSTALL_URL" -o "$XRAY_INSTALL_TMP"; then
+    echo -e "${red}Error: Failed to download Xray installer${none}"
+    exit 1
+fi
+
+echo -e "${cyan}Verifying checksum...${none}"
+echo "${XRAY_INSTALL_SHA256}  ${XRAY_INSTALL_TMP}" | sha256sum -c - >/dev/null 2>&1
+if [[ $? -ne 0 ]]; then
+    echo -e "${red}Error: Checksum verification failed${none}"
+    echo -e "${yellow}The installer may have been tampered with${none}"
+    rm -f "$XRAY_INSTALL_TMP"
+    exit 1
+fi
+
+echo -e "${cyan}Installing Xray-core...${none}"
+bash "$XRAY_INSTALL_TMP" install >/dev/null 2>&1
+rm -f "$XRAY_INSTALL_TMP"
 
 if ! command -v xray >/dev/null 2>&1; then
     echo -e "${red}✗ Xray installation failed${none}"
@@ -219,8 +242,6 @@ echo -e "${cyan}========================================${none}"
 echo -e "${cyan}Step 6: Configure Xray Reality${none}"
 echo -e "${cyan}========================================${none}"
 echo ""
-
-mkdir -p /etc/ai-xray
 
 cat > /usr/local/etc/xray/config.json << EOF
 {

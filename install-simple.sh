@@ -51,9 +51,28 @@ esac
 
 echo -e "${green}Dependencies installed${none}"
 
-# Install Xray
+# Install Xray with pinned version and checksum verification
 echo -e "${yellow}Installing Xray...${none}"
-bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) install
+
+XRAY_INSTALL_COMMIT="e741a4f5"
+XRAY_INSTALL_SHA256="7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555"
+XRAY_INSTALL_URL="https://raw.githubusercontent.com/XTLS/Xray-install/${XRAY_INSTALL_COMMIT}/install-release.sh"
+XRAY_INSTALL_TMP="/tmp/xray-install-$$.sh"
+
+if ! curl -fsSL "$XRAY_INSTALL_URL" -o "$XRAY_INSTALL_TMP"; then
+    echo -e "${red}Failed to download Xray installer${none}"
+    exit 1
+fi
+
+echo "${XRAY_INSTALL_SHA256}  ${XRAY_INSTALL_TMP}" | sha256sum -c - >/dev/null 2>&1
+if [[ $? -ne 0 ]]; then
+    echo -e "${red}Checksum verification failed${none}"
+    rm -f "$XRAY_INSTALL_TMP"
+    exit 1
+fi
+
+bash "$XRAY_INSTALL_TMP" install
+rm -f "$XRAY_INSTALL_TMP"
 
 if ! command -v xray >/dev/null 2>&1; then
     echo -e "${red}Xray installation failed${none}"
@@ -95,7 +114,6 @@ echo -e "${green}Region: $REGION, Dest: $DEST${none}"
 
 # Write config
 echo -e "${yellow}Writing configuration...${none}"
-mkdir -p /etc/ai-xray
 
 cat > /usr/local/etc/xray/config.json << EOF
 {

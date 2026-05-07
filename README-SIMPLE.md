@@ -123,7 +123,7 @@ VLESS Link:
 vless://xxxxxxxx@1.2.3.4:443?encryption=none&flow=xtls-rprx-vision...
 
 Note: Default whitelist only allows cross-border e-commerce platforms.
-Edit whitelist: nano /etc/ai-xray/config.json
+Edit whitelist: nano /usr/local/etc/xray/config.json
 ```
 
 复制 **VLESS Link** 到客户端即可使用。
@@ -148,7 +148,7 @@ Edit whitelist: nano /etc/ai-xray/config.json
 编辑配置文件：
 
 ```bash
-nano /etc/ai-xray/config.json
+nano /usr/local/etc/xray/config.json
 ```
 
 找到 `routing.rules[0].domain` 数组，添加或删除域名。
