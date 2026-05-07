@@ -202,7 +202,7 @@ rm -f /usr/local/bin/xray
 |------|------|------|------|
 | [搬瓦工](https://bwh81.net/aff.php?aff=20308) | CN2 GIA | $49.99/年 | 电信用户 |
 | [DMIT](https://www.dmit.io/aff.php?aff=3138) | CMI | $6.9/月 | 移动用户 |
-| [Vultr](https://www.vultr.com/?ref=9631926-9J) | 普通线路 | $5/月 | 预算有限 |
+| [Vultr](https://www.vultr.com/?ref=9631926-9J) | 全球节点 | $5/月 | 送$300免费试用 |
 
 ---
 
