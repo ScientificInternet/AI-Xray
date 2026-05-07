@@ -13,6 +13,27 @@ cyan='\e[96m'
 blue='\e[94m'
 none='\e[0m'
 
+# Error handler
+error_exit() {
+    local message="$1"
+    echo ""
+    echo -e "${red}========================================${none}"
+    echo -e "${red}Installation Failed${none}"
+    echo -e "${red}========================================${none}"
+    echo ""
+    error_exit "${message}"
+    echo ""
+    echo -e "${yellow}Please report this issue:${none}"
+    echo -e "${cyan}https://github.com/ScientificInternet/AI-Xray/issues${none}"
+    echo ""
+    echo -e "${yellow}Include the following information:${none}"
+    echo -e "  • Error message: ${message}"
+    echo -e "  • OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d" -f2 2>/dev/null || echo Unknown)"
+    echo -e "  • Kernel: $(uname -r)"
+    echo ""
+    exit 1
+}
+
 echo -e "${cyan}========================================${none}"
 echo -e "${cyan}AI-Xray Professional Installer${none}"
 echo -e "${cyan}Cross-border E-commerce Accelerator${none}"
@@ -21,8 +42,7 @@ echo ""
 
 # Check root
 if [[ $EUID -ne 0 ]]; then
-   echo -e "${red}Error: Please run as root${none}"
-   exit 1
+   error_exit "Please run as root"
 fi
 
 # Detect system
@@ -30,8 +50,7 @@ if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     OS=$ID
 else
-    echo -e "${red}Error: Cannot detect OS${none}"
-    exit 1
+    error_exit "Cannot detect OS"
 fi
 
 echo -e "${green}✓ System: $OS${none}"
@@ -154,8 +173,7 @@ case $OS in
         yum install -y curl wget unzip openssl >/dev/null 2>&1
         ;;
     *)
-        echo -e "${red}Unsupported OS: $OS${none}"
-        exit 1
+        error_exit "Unsupported OS: $OS"
         ;;
 esac
 
@@ -176,15 +194,13 @@ XRAY_INSTALL_TMP="/tmp/xray-install-$$.sh"
 
 echo -e "${cyan}Downloading Xray installer (pinned: ${XRAY_INSTALL_COMMIT})...${none}"
 if ! curl -fsSL "$XRAY_INSTALL_URL" -o "$XRAY_INSTALL_TMP"; then
-    echo -e "${red}Error: Failed to download Xray installer${none}"
-    exit 1
+    error_exit "Failed to download Xray installer"
 fi
 
 echo -e "${cyan}Verifying checksum...${none}"
 echo "${XRAY_INSTALL_SHA256}  ${XRAY_INSTALL_TMP}" | sha256sum -c - >/dev/null 2>&1
 if [[ $? -ne 0 ]]; then
-    echo -e "${red}Error: Checksum verification failed${none}"
-    echo -e "${yellow}The installer may have been tampered with${none}"
+    error_exit "Checksum verification failed"
     rm -f "$XRAY_INSTALL_TMP"
     exit 1
 fi
@@ -194,8 +210,7 @@ bash "$XRAY_INSTALL_TMP" install >/dev/null 2>&1
 rm -f "$XRAY_INSTALL_TMP"
 
 if ! command -v xray >/dev/null 2>&1; then
-    echo -e "${red}✗ Xray installation failed${none}"
-    exit 1
+    error_exit "✗ Xray installation failed"
 fi
 
 xray_version=$(xray version 2>/dev/null | head -1 | awk '{print $2}')
@@ -363,9 +378,7 @@ systemctl enable xray >/dev/null 2>&1
 if systemctl is-active --quiet xray; then
     echo -e "${green}✓ Xray service started${none}"
 else
-    echo -e "${red}✗ Xray service failed to start${none}"
-    echo -e "${yellow}Check logs: journalctl -u xray -n 50${none}"
-    exit 1
+    error_exit "Xray service failed to start. Check logs: journalctl -u xray -n 50"
 fi
 
 # ==================== Installation Complete ====================

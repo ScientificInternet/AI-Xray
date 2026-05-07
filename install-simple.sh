@@ -12,13 +12,34 @@ yellow='\e[93m'
 cyan='\e[96m'
 none='\e[0m'
 
+# Error handler
+error_exit() {
+    local message="$1"
+    echo ""
+    echo -e "${red}========================================${none}"
+    echo -e "${red}Installation Failed${none}"
+    echo -e "${red}========================================${none}"
+    echo ""
+    error_exit "${message}"
+    echo ""
+    echo -e "${yellow}Please report this issue:${none}"
+    echo -e "${cyan}https://github.com/ScientificInternet/AI-Xray/issues${none}"
+    echo ""
+    echo -e "${yellow}Include the following information:${none}"
+    echo -e "  • Error message: ${message}"
+    echo -e "  • OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d" -f2 2>/dev/null || echo Unknown)"
+    echo -e "  • Kernel: $(uname -r)"
+    echo ""
+    exit 1
+}
+
 echo -e "${cyan}========================================${none}"
 echo -e "${cyan}AI-Xray Reality Installer${none}"
 echo -e "${cyan}========================================${none}"
 
 # Check root
 if [[ $EUID -ne 0 ]]; then
-   echo -e "${red}Error: Please run as root${none}"
+   error_exit "Please run as root"
    exit 1
 fi
 
@@ -27,7 +48,7 @@ if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     OS=$ID
 else
-    echo -e "${red}Error: Cannot detect OS${none}"
+    error_exit "Cannot detect OS"
     exit 1
 fi
 
@@ -66,7 +87,7 @@ fi
 
 echo "${XRAY_INSTALL_SHA256}  ${XRAY_INSTALL_TMP}" | sha256sum -c - >/dev/null 2>&1
 if [[ $? -ne 0 ]]; then
-    echo -e "${red}Checksum verification failed${none}"
+    error_exit "Checksum verification failed"
     rm -f "$XRAY_INSTALL_TMP"
     exit 1
 fi
@@ -75,7 +96,7 @@ bash "$XRAY_INSTALL_TMP" install
 rm -f "$XRAY_INSTALL_TMP"
 
 if ! command -v xray >/dev/null 2>&1; then
-    echo -e "${red}Xray installation failed${none}"
+    error_exit "Xray installation failed"
     exit 1
 fi
 

@@ -11,10 +11,26 @@ yellow='\e[93m'
 cyan='\e[96m'
 none='\e[0m'
 
+# Error handler
+error_exit() {
+    local message="$1"
+    echo ""
+    echo -e "${red}========================================${none}"
+    echo -e "${red}Error${none}"
+    echo -e "${red}========================================${none}"
+    echo ""
+    echo -e "${red}${message}${none}"
+    echo ""
+    echo -e "${yellow}Please report this issue:${none}"
+    echo -e "${cyan}https://github.com/ScientificInternet/AI-Xray/issues${none}"
+    echo ""
+    exit 1
+}
+
 # Check if config exists
 if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo -e "${red}Error: Config file not found at $CONFIG_FILE${none}"
-    echo -e "${yellow}Please install AI-Xray first.${none}"
+    error_exit "Config file not found at $CONFIG_FILE"
+    
     exit 1
 fi
 
