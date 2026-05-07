@@ -168,7 +168,30 @@ echo -e "${cyan}Step 3: Install Xray-core${none}"
 echo -e "${cyan}========================================${none}"
 echo ""
 
-bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) install >/dev/null 2>&1
+# Install Xray-core with pinned version and checksum verification
+XRAY_INSTALL_COMMIT="e741a4f5"
+XRAY_INSTALL_SHA256="7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555"
+XRAY_INSTALL_URL="https://raw.githubusercontent.com/XTLS/Xray-install/${XRAY_INSTALL_COMMIT}/install-release.sh"
+XRAY_INSTALL_TMP="/tmp/xray-install-$$.sh"
+
+echo -e "${cyan}Downloading Xray installer (pinned: ${XRAY_INSTALL_COMMIT})...${none}"
+if ! curl -fsSL "$XRAY_INSTALL_URL" -o "$XRAY_INSTALL_TMP"; then
+    echo -e "${red}Error: Failed to download Xray installer${none}"
+    exit 1
+fi
+
+echo -e "${cyan}Verifying checksum...${none}"
+echo "${XRAY_INSTALL_SHA256}  ${XRAY_INSTALL_TMP}" | sha256sum -c - >/dev/null 2>&1
+if [[ $? -ne 0 ]]; then
+    echo -e "${red}Error: Checksum verification failed${none}"
+    echo -e "${yellow}The installer may have been tampered with${none}"
+    rm -f "$XRAY_INSTALL_TMP"
+    exit 1
+fi
+
+echo -e "${cyan}Installing Xray-core...${none}"
+bash "$XRAY_INSTALL_TMP" install >/dev/null 2>&1
+rm -f "$XRAY_INSTALL_TMP"
 
 if ! command -v xray >/dev/null 2>&1; then
     echo -e "${red}✗ Xray installation failed${none}"
