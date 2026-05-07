@@ -69,6 +69,16 @@ echo ""
 VPSCHECK_URL="https://raw.githubusercontent.com/adsorgcn/vpscheck/main/vpscheck.sh"
 VPSCHECK_TMP="/tmp/vpscheck_$$.sh"
 
+# Initialize variables
+CHATGPT_OK=0
+CLAUDE_OK=0
+GEMINI_OK=0
+NETFLIX_OK=0
+DISNEY_OK=0
+YOUTUBE_OK=0
+SPOTIFY_OK=0
+ROUTE_SCORE=0
+
 if ! curl -fsSL "$VPSCHECK_URL" -o "$VPSCHECK_TMP"; then
     echo -e "${yellow}Warning: Cannot download vpscheck, skipping quality check${none}"
     SKIP_CHECK=1
@@ -79,7 +89,6 @@ if [[ -z "$SKIP_CHECK" ]]; then
     echo -e "${cyan}Running AI services check...${none}"
     
     # Check ChatGPT
-    CHATGPT_OK=0
     unsupported_chatgpt="CN HK RU IR KP SY CU BY VE"
     country=$(curl -s ipinfo.io/country 2>/dev/null)
     if ! echo "$unsupported_chatgpt" | grep -qw "$country"; then
@@ -91,7 +100,6 @@ if [[ -z "$SKIP_CHECK" ]]; then
     fi
     
     # Check Claude
-    CLAUDE_OK=0
     unsupported_claude="CN HK RU IR KP SY CU BY"
     if ! echo "$unsupported_claude" | grep -qw "$country"; then
         claude_response=$(curl -s -4 --max-time 10 -X POST -H "Content-Type: application/json" -w "\n%{http_code}" "https://api.anthropic.com/v1/messages" 2>/dev/null)
@@ -102,7 +110,6 @@ if [[ -z "$SKIP_CHECK" ]]; then
     fi
     
     # Check Gemini
-    GEMINI_OK=0
     unsupported_gemini="CN RU IR KP SY CU BY"
     if ! echo "$unsupported_gemini" | grep -qw "$country"; then
         gemini_response=$(curl -s -4 --max-time 10 "https://generativelanguage.googleapis.com/v1beta/models?key=invalid" 2>/dev/null)
@@ -161,7 +168,6 @@ if [[ -z "$SKIP_CHECK" ]]; then
     )
     
     declare -A ROUTE_RESULTS
-    ROUTE_SCORE=0
     
     for target_name in "${!TARGETS[@]}"; do
         target_host="${TARGETS[$target_name]}"
