@@ -189,7 +189,44 @@ cat > /usr/local/etc/xray/config.json << EOF
     "rules": [
       {
         "type": "field",
-        "domain": ["business.tiktok.com","ads.tiktok.com","seller.tiktok.com","sellercentral.amazon.com","advertising.amazon.com","ads.google.com","merchants.google.com","business.facebook.com","www.facebook.com","admin.shopify.com","accounts.shopify.com","api.openai.com","chat.openai.com","claude.ai","gemini.google.com"],
+        "domain": [
+          "geosite:category-ads-all",
+          "geosite:category-ads"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "domain:tiktok.com",
+          "domain:amazon.com",
+          "domain:google.com",
+          "domain:googleapis.com",
+          "domain:facebook.com",
+          "domain:fbcdn.net",
+          "domain:shopify.com",
+          "domain:openai.com",
+          "domain:anthropic.com",
+          "domain:claude.ai",
+          "domain:stripe.com",
+          "domain:paypal.com",
+          "domain:aliexpress.com",
+          "domain:ebay.com",
+          "domain:etsy.com",
+          "domain:walmart.com",
+          "domain:cloudflare.com",
+          "domain:amazonaws.com",
+          "domain:github.com",
+          "domain:netflix.com",
+          "domain:disneyplus.com",
+          "domain:youtube.com",
+          "domain:spotify.com",
+          "domain:hulu.com",
+          "domain:perplexity.ai",
+          "domain:mistral.ai",
+          "domain:cohere.com",
+          "domain:huggingface.co"
+        ],
         "outboundTag": "direct"
       },
       {
