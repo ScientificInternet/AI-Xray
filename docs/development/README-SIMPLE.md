@@ -91,7 +91,7 @@ https://你的项目.pages.dev/你的UUID
 SSH 登录你的 VPS，执行：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.2.1/install-simple.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.3.1/install-simple.sh)
 ```
 
 脚本会自动完成：

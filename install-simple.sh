@@ -20,7 +20,7 @@ error_exit() {
     echo -e "${red}Installation Failed${none}"
     echo -e "${red}========================================${none}"
     echo ""
-    error_exit "${message}"
+    echo -e "${red}Error: ${message}${none}"
     echo ""
     echo -e "${yellow}Please report this issue:${none}"
     echo -e "${cyan}https://github.com/ScientificInternet/AI-Xray/issues${none}"

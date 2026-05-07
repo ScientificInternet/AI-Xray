@@ -46,7 +46,7 @@ AI驱动的跨境电商网络加速器。
 ### 一键安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.3.0/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.3.1/install.sh)
 ```
 
 ### 功能特性
@@ -91,7 +91,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v
 SSH 登录 VPS，执行：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.2.1/install-simple.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.3.1/install-simple.sh)
 ```
 
 ### 安装过程
@@ -158,7 +158,7 @@ vless://xxxxxxxx@1.2.3.4:443?encryption=none&flow=xtls-rprx-vision...
 运行交互式管理工具：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.2.1/whitelist-manager.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.3.1/whitelist-manager.sh)
 ```
 
 菜单选项：

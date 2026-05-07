@@ -55,7 +55,7 @@ AI驱动的跨境电商网络加速器。
 SSH 登录 VPS，执行：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.2.1/install-simple.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.3.1/install-simple.sh)
 ```
 
 ### 安装过程

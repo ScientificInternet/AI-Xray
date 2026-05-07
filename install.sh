@@ -202,7 +202,20 @@ if [[ -z "$SKIP_CHECK" ]]; then
     done
     
     echo -e "${cyan}Running streaming unlock check...${none}"
-    curl -fsSL https://raw.githubusercontent.com/lmc999/RegionRestrictionCheck/main/check.sh | bash -s -- -M 4 -E en > /tmp/vps_streaming_check.txt 2>&1
+    
+    # Pin RegionRestrictionCheck to specific commit
+    REGION_CHECK_COMMIT="b6d4a6f9a87fc6eae6d3e62d0092ececcec8e844"
+    REGION_CHECK_SHA256="9c0ec7f81a39743c91df9636924f7b308b96fbc038b84b95040d6eb48f8da8cd"
+    
+    curl -fsSL "https://raw.githubusercontent.com/lmc999/RegionRestrictionCheck/${REGION_CHECK_COMMIT}/check.sh" -o /tmp/region_check.sh
+    
+    # Verify checksum
+    if ! echo "${REGION_CHECK_SHA256}  /tmp/region_check.sh" | sha256sum -c --status; then
+        error_exit "RegionRestrictionCheck checksum verification failed"
+    fi
+    
+    bash /tmp/region_check.sh -M 4 -E en > /tmp/vps_streaming_check.txt 2>&1
+    rm -f /tmp/region_check.sh
     
     # Parse results
     echo ""
