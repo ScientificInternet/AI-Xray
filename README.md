@@ -46,8 +46,29 @@ AI驱动的跨境电商网络加速器。
 ### 一键安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.2.1/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.3.0/install.sh)
 ```
+
+### 功能特性
+
+**VPS 质量检测**
+- ✅ AI 服务检测（ChatGPT / Claude / Gemini）
+- ✅ 流媒体解锁检测（Netflix / Disney+ / YouTube Premium）
+- ✅ 路由质量检测（延迟 + 绕路判断）
+- ✅ IP 类型分析
+- ✅ 综合评分（优秀 / 良好 / 较差）
+
+**安全特性**
+- ✅ 供应链固定（commit hash + sha256 校验）
+- ✅ 输入校验（防止注入攻击）
+- ✅ 白名单锁定（默认只允许跨境电商平台）
+- ✅ 交互式配置（中英双语）
+
+**技术栈**
+- VLESS + Reality + Vision 协议
+- Xray-core 最新稳定版
+- BBR 拥塞控制
+- 自动化部署
 
 **支持系统：**
 - ✅ Ubuntu 22.04 / 20.04 LTS
