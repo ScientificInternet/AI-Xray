@@ -82,6 +82,83 @@ if [[ -z "$SKIP_CHECK" ]]; then
     echo -e "${cyan}Running IP analysis...${none}"
     bash "$VPSCHECK_TMP" -r 10 > /tmp/vps_ip_check.txt 2>&1
     
+    echo -e "${cyan}Running route quality check...${none}"
+    # 延迟参考表
+    declare -A LATENCY_REF=(
+        ["guangzhou_hongkong"]="5|10"
+        ["guangzhou_singapore"]="45|60"
+        ["guangzhou_tokyo"]="60|80"
+        ["guangzhou_losangeles"]="150|180"
+        ["shanghai_hongkong"]="35|50"
+        ["shanghai_singapore"]="65|85"
+        ["shanghai_tokyo"]="27|40"
+        ["shanghai_losangeles"]="127|150"
+        ["beijing_hongkong"]="45|60"
+        ["beijing_singapore"]="75|95"
+        ["beijing_tokyo"]="40|55"
+        ["beijing_losangeles"]="140|170"
+        ["chengdu_hongkong"]="40|55"
+        ["chengdu_singapore"]="60|80"
+        ["chengdu_tokyo"]="80|100"
+        ["chengdu_losangeles"]="170|200"
+        ["wuhan_hongkong"]="30|45"
+        ["wuhan_singapore"]="60|80"
+        ["wuhan_tokyo"]="50|70"
+        ["wuhan_losangeles"]="150|180"
+    )
+    
+    # 检测源地区
+    IP_INFO=$(curl -s ipinfo.io 2>/dev/null || curl -s ip-api.com/json 2>/dev/null)
+    CITY=$(echo "$IP_INFO" | grep -i "city\|region" | head -1 | grep -oP '(?<=:")[^"]+' | tr '[:upper:]' '[:lower:]')
+    
+    case "$CITY" in
+        *guangzhou*|*shenzhen*|*dongguan*|*foshan*) SOURCE_REGION="guangzhou" ;;
+        *shanghai*|*hangzhou*|*nanjing*|*suzhou*) SOURCE_REGION="shanghai" ;;
+        *beijing*|*tianjin*) SOURCE_REGION="beijing" ;;
+        *chengdu*|*chongqing*) SOURCE_REGION="chengdu" ;;
+        *wuhan*|*changsha*) SOURCE_REGION="wuhan" ;;
+        *) SOURCE_REGION="shanghai" ;;  # 默认上海
+    esac
+    
+    # 测试延迟
+    declare -A TARGETS=(
+        ["hongkong"]="hk.cloudflare.com"
+        ["singapore"]="sg.cloudflare.com"
+        ["tokyo"]="jp.cloudflare.com"
+        ["losangeles"]="lax.cloudflare.com"
+    )
+    
+    declare -A ROUTE_RESULTS
+    ROUTE_SCORE=0
+    
+    for target_name in "${!TARGETS[@]}"; do
+        target_host="${TARGETS[$target_name]}"
+        latency=$(ping -c 3 -W 2 "$target_host" 2>/dev/null | grep 'avg' | awk -F'/' '{print $5}' | cut -d'.' -f1)
+        
+        if [[ -n "$latency" && "$latency" != "0" ]]; then
+            key="${SOURCE_REGION}_${target_name}"
+            ref="${LATENCY_REF[$key]}"
+            
+            if [[ -n "$ref" ]]; then
+                standard=$(echo "$ref" | cut -d'|' -f1)
+                tolerance=$(echo "$ref" | cut -d'|' -f2)
+                
+                # 判断路由质量
+                if [[ $latency -le $tolerance ]]; then
+                    ROUTE_RESULTS[$target_name]="direct|$latency|$standard"
+                    ((ROUTE_SCORE++))
+                else
+                    excess=$((latency - standard))
+                    if [[ $excess -gt 100 ]]; then
+                        ROUTE_RESULTS[$target_name]="detour_major|$latency|$standard"
+                    else
+                        ROUTE_RESULTS[$target_name]="detour_minor|$latency|$standard"
+                    fi
+                fi
+            fi
+        fi
+    done
+    
     echo -e "${cyan}Running streaming unlock check...${none}"
     curl -fsSL https://raw.githubusercontent.com/lmc999/RegionRestrictionCheck/main/check.sh | bash -s -- -M 4 -E en > /tmp/vps_streaming_check.txt 2>&1
     
@@ -120,6 +197,27 @@ if [[ -z "$SKIP_CHECK" ]]; then
     [[ $SPOTIFY_OK -gt 0 ]] && echo -e "  ${green}✓ Spotify${none}" || echo -e "  ${red}✗ Spotify${none}"
     
     echo ""
+    echo -e "${blue}Route Quality / 路由质量 (from ${SOURCE_REGION}):${none}"
+    for target in "${!ROUTE_RESULTS[@]}"; do
+        result="${ROUTE_RESULTS[$target]}"
+        IFS='|' read -r status latency standard <<< "$result"
+        
+        case "$status" in
+            direct)
+                echo -e "  ${green}✓ ${target}: ${latency}ms${none} (Standard: ${standard}ms)"
+                ;;
+            detour_minor)
+                echo -e "  ${yellow}⚠ ${target}: ${latency}ms${none} (Standard: ${standard}ms, +$((latency - standard))ms)"
+                echo -e "    ${yellow}Domestic detour / 国内绕路${none}"
+                ;;
+            detour_major)
+                echo -e "  ${red}✗ ${target}: ${latency}ms${none} (Standard: ${standard}ms, +$((latency - standard))ms)"
+                echo -e "    ${red}Major detour detected / 严重绕路${none}"
+                ;;
+        esac
+    done
+    
+    echo ""
     echo -e "${blue}IP Information / IP 信息:${none}"
     echo -e "  $IP_TYPE"
     
@@ -132,14 +230,16 @@ if [[ -z "$SKIP_CHECK" ]]; then
     [[ $GEMINI_OK -gt 0 ]] && ((SCORE++))
     [[ $NETFLIX_OK -gt 0 ]] && ((SCORE++))
     [[ $DISNEY_OK -gt 0 ]] && ((SCORE++))
+    [[ $ROUTE_SCORE -ge 3 ]] && ((SCORE+=2))  # 路由质量好加 2 分
+    [[ $ROUTE_SCORE -ge 2 ]] && ((SCORE+=1))  # 路由质量一般加 1 分
     
-    if [[ $SCORE -ge 4 ]]; then
+    if [[ $SCORE -ge 6 ]]; then
         echo -e "${green}✓ Excellent VPS / 优秀 VPS${none}"
         echo -e "${green}  Recommended for / 推荐用于:${none}"
         echo -e "${green}  • Cross-border e-commerce / 跨境电商${none}"
         echo -e "${green}  • AI tools / AI 工具${none}"
         echo -e "${green}  • Streaming services / 流媒体服务${none}"
-    elif [[ $SCORE -ge 2 ]]; then
+    elif [[ $SCORE -ge 3 ]]; then
         echo -e "${yellow}⚠ Good VPS / 良好 VPS${none}"
         echo -e "${yellow}  Suitable for most tasks / 适合大多数任务${none}"
         echo -e "${yellow}  Some services may be restricted / 部分服务可能受限${none}"
@@ -148,6 +248,14 @@ if [[ -z "$SKIP_CHECK" ]]; then
         echo -e "${red}  Consider a different provider / 建议更换服务商${none}"
         echo -e "${red}  Recommended: US/EU native IP / 推荐：美欧原生 IP${none}"
         echo ""
+    fi
+    
+    # 提示详细路由检测
+    if [[ $ROUTE_SCORE -lt 3 ]]; then
+        echo ""
+        echo -e "${yellow}For detailed route analysis / 详细路由分析:${none}"
+        echo -e "  ${cyan}curl -sL https://nxtrace.org/nt | bash${none}"
+        echo -e "  ${cyan}nexttrace google.com${none}"
     fi
     
     # Cleanup
