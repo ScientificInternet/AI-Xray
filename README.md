@@ -43,10 +43,25 @@ AI驱动的跨境电商网络加速器。
 
 ## 专业模式部署
 
+### 一键安装
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/main/install.sh)
+```
+
+**支持系统：**
+- ✅ Ubuntu 22.04 / 20.04 LTS
+- ✅ Debian 12 / 11
+- ✅ CentOS 7
+- ✅ Rocky Linux 9
+- ✅ AlmaLinux 9
+
+**安装时间：** 3-5 分钟（包含 VPS 质量检测）
+
 ### 前置要求
 
-- ✅ 海外 VPS（推荐：美国/日本/新加坡）
-- ✅ 系统：Debian 10+ / Ubuntu 20.04+ / CentOS 7+
+- ✅ 海外 VPS（推荐：美国/欧洲原生 IP）
+- ✅ Root 权限
 - ✅ 端口 443 未被占用
 - ✅ Root 权限
 
