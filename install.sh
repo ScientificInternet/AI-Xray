@@ -84,7 +84,7 @@ installDeps() {
 #=== 5. 安装Xray =============================================================
 installXray() {
     echo ""; colorEcho $BLUE "安装Xray..."
-    bash -c "$(curl -sL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --version latest 2>/dev/null
+    bash -c "$(curl -sL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install 2>/dev/null
     systemctl enable xray 2>/dev/null
     colorEcho $GREEN "✓ Xray安装完成"
 }
@@ -408,7 +408,7 @@ regenerate_site() {
 
 update_xray() {
     colorEcho $BLUE "检查Xray更新..."
-    bash -c "$(curl -sL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --version latest 2>/dev/null
+    bash -c "$(curl -sL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install 2>/dev/null
     systemctl restart xray
     colorEcho $GREEN "✓ Xray已更新"
 }
