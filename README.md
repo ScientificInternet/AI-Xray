@@ -9,7 +9,7 @@
 ## 一行安装 / One-line Install
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v2.0/install.sh)
 ```
 
 ---

@@ -220,12 +220,8 @@ server {
 }
 NEOF
 
-    # 如果nginx默认用sites-available，创建软链
-    if [[ -d /etc/nginx/sites-available ]]; then
-        ln -sf /etc/nginx/conf.d/ai-xray.conf /etc/nginx/sites-available/ai-xray
-        ln -sf /etc/nginx/sites-available/ai-xray /etc/nginx/sites-enabled/ai-xray 2>/dev/null || true
-    fi
-
+    # 删除nginx默认站点，避免server块冲突
+    rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
     colorEcho $GREEN "✓ 配置生成完成"
 }
 
@@ -291,8 +287,12 @@ enableBBR() {
     modprobe tcp_bbr 2>/dev/null || true
     # 检查BBR是否可用
     if sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | grep -q bbr; then
-        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+        if ! grep -q "^net.core.default_qdisc=fq" /etc/sysctl.conf 2>/dev/null; then
+            echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+        fi
+        if ! grep -q "^net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf 2>/dev/null; then
+            echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+        fi
         sysctl -p >/dev/null 2>&1 || true
         colorEcho $GREEN "✓ BBR已开启"
     else
@@ -340,7 +340,7 @@ showInfo() {
     IP=$(curl -s4m5 https://ip.gs || echo "unknown")
 
     # 生成VMess链接
-    raw="{\"v\":\"2\",\"ps\":\"AI-Xray-${DOMAIN}\",\"add\":\"${IP}\",\"port\":\"443\",\"id\":\"${UUID}\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${DOMAIN}\",\"path\":\"${WS_PATH}\",\"tls\":\"tls\"}"
+    raw="{\"v\":\"2\",\"ps\":\"AI-Xray-${DOMAIN}\",\"add\":\"${DOMAIN}\",\"port\":\"443\",\"id\":\"${UUID}\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${DOMAIN}\",\"path\":\"${WS_PATH}\",\"tls\":\"tls\"}"
     link=$(echo -n "$raw" | base64 -w 0)
     link="vmess://${link}"
 
@@ -410,7 +410,7 @@ show_info() {
         UUID=$(jq -r .uuid "$INFO_FILE")
         WSPATH=$(jq -r .wsPath "$INFO_FILE")
         IP=$(jq -r .ip "$INFO_FILE")
-        raw="{\"v\":\"2\",\"ps\":\"AI-Xray-${DOMAIN}\",\"add\":\"${IP}\",\"port\":\"443\",\"id\":\"${UUID}\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${DOMAIN}\",\"path\":\"${WSPATH}\",\"tls\":\"tls\"}"
+        raw="{\"v\":\"2\",\"ps\":\"AI-Xray-${DOMAIN}\",\"add\":\"${DOMAIN}\",\"port\":\"443\",\"id\":\"${UUID}\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${DOMAIN}\",\"path\":\"${WSPATH}\",\"tls\":\"tls\"}"
         link=$(echo -n "$raw" | base64 -w 0)
         echo -e "  域名:   ${GREEN}${DOMAIN}${PLAIN}"
         echo -e "  端口:   ${GREEN}443${PLAIN}"
@@ -424,8 +424,9 @@ show_info() {
 
 regenerate_site() {
     colorEcho $BLUE "正在重新生成伪装站..."
-    SITE_HTML=$(curl -fsSL --max-time 30 "https://aixray.fluxrouter.net/generate?type=1&lang=en" 2>/dev/null)
-    if [[ $? -eq 0 ]] && [[ ${#SITE_HTML} -gt 500 ]]; then
+    SITE_TYPE=$(jq -r .siteType "$INFO_FILE" 2>/dev/null || echo "1")
+    SITE_HTML=$(curl -fsSL --max-time 30 "https://aixray.fluxrouter.net/generate?type=${SITE_TYPE}&lang=en" 2>/dev/null) || true
+    if [[ ${#SITE_HTML} -gt 500 ]]; then
         echo "$SITE_HTML" > ${SITE_DIR}/index.html
         colorEcho $GREEN "✓ 伪装站已刷新"
     else
@@ -469,7 +470,7 @@ uninstall() {
     systemctl stop xray 2>/dev/null; systemctl stop nginx 2>/dev/null
     systemctl disable xray 2>/dev/null; systemctl disable nginx 2>/dev/null
     rm -f /usr/local/bin/xray /usr/local/etc/xray/config.json
-    rm -f /etc/nginx/conf.d/ai-xray.conf /etc/nginx/sites-available/ai-xray /etc/nginx/sites-enabled/ai-xray
+    rm -f /etc/nginx/conf.d/ai-xray.conf
     rm -rf /usr/share/nginx/ai-xray /etc/ai-xray
     rm -f /usr/local/bin/ai-xray
     colorEcho $GREEN "✓ 卸载完成"
