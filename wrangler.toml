@@ -1,8 +1,0 @@
-name = "ai-xray"
-main = "_worker.js"
-compatibility_date = "2024-09-23"
-compatibility_flags = ["nodejs_compat"]
-
-# [vars]
-# UUID = "your-uuid-here"
-# PROXYIP = "proxyip.example.com"  # Only needed for CF-hosted destinations

@@ -1,242 +1,102 @@
 # AI-Xray
 
-AI驱动的跨境电商网络加速器。
-
-**定位**：不是翻墙工具，是跨境电商网络加速器。默认白名单锁死 TikTok Business / Amazon Seller / Google Ads / Shopify 等平台。
-
----
-
-## 两种模式
-
-### 免费模式（零成本）
-- ✅ 无需VPS，无需花钱
-- ✅ 使用 Cloudflare 全球节点
-- ✅ 5分钟部署完成
-- ⚠️ 速度一般（共享节点）
-
-### 专业模式（需要VPS）
-- ✅ 自有海外VPS，独享带宽
-- ✅ VLESS + Reality + Vision 协议
-- ✅ 一行命令安装
-- ⚠️ 需要购买VPS（$5-20/月）
+> 跨境电商加速器 v2.0 · Cross-border E-commerce Accelerator
+>
+> VMESS + WebSocket + TLS + CDN · AI-generated camouflage site
 
 ---
 
-## 免费模式部署
-
-使用 [AI-Xray Free](https://github.com/ScientificInternet/AI-Xray-Free)，基于 edgetunnel，零成本 5 分钟部署。
-
-### 快速部署
-
-1. **Fork 项目**：访问 [AI-Xray Free](https://github.com/ScientificInternet/AI-Xray-Free)，点击右上角 Fork
-2. **部署到 CF Pages**：
-   - 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
-   - Workers & Pages → 创建 → Pages → 连接到 Git
-   - 选择 AI-Xray-Free 项目 → 开始设置
-   - 环境变量添加：`ADMIN` = 你的管理员密码
-   - 保存并部署
-3. **访问后台**：`https://你的项目.pages.dev/admin`
-
-详细教程：[AI-Xray Free 部署指南](https://github.com/ScientificInternet/AI-Xray-Free#部署教程)
-
----
-
-## 专业模式部署
-
-### 一键安装
+## 一行安装 / One-line Install
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.3.1/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/main/install.sh)
 ```
 
-### 功能特性
+---
 
-**VPS 质量检测**
-- ✅ AI 服务检测（ChatGPT / Claude / Gemini）
-- ✅ 流媒体解锁检测（Netflix / Disney+ / YouTube Premium）
-- ✅ 路由质量检测（延迟 + 绕路判断）
-- ✅ IP 类型分析
-- ✅ 综合评分（优秀 / 良好 / 较差）
+## 功能 / Features
 
-**安全特性**
-- ✅ 供应链固定（commit hash + sha256 校验）
-- ✅ 输入校验（防止注入攻击）
-- ✅ 白名单锁定（默认只允许跨境电商平台）
-- ✅ 交互式配置（中英双语）
+- **VMESS + WS + TLS** — 过CDN，极其稳定 / CDN-compatible, extremely stable
+- **AI伪装站** — 三层fallback自动生成 / AI-generated site with 3-layer fallback
+- **VPS质量检测** — 安装前自动检查 / Pre-install VPS quality check
+- **一行命令** — 全自动安装 / Fully automated installation
+- **一个菜单** — `ai-xray` 管理一切 / One command to manage everything
 
-**技术栈**
-- VLESS + Reality + Vision 协议
-- Xray-core 最新稳定版
-- BBR 拥塞控制
-- 自动化部署
+---
 
-**支持系统：**
-- ✅ Ubuntu 22.04 / 20.04 LTS
-- ✅ Debian 12 / 11
-- ✅ CentOS 7
-- ✅ Rocky Linux 9
-- ✅ AlmaLinux 9
+## 安装流程 / Installation Flow
 
-**安装时间：** 3-5 分钟（包含 VPS 质量检测）
+1. 输入域名（必须已解析到服务器）/ Enter your domain (must resolve to the server)
+2. 选择伪装站类型（默认AI协议文档站）/ Choose camouflage site type
+3. 全自动：安装依赖 → Xray → 证书 → 配置 → 伪装站 → BBR → 启动
+4. 复制VMess链接到客户端 / Copy VMess link to client
 
-### 前置要求
+---
 
-- ✅ 海外 VPS（推荐：美国/欧洲原生 IP）
-- ✅ Root 权限
-- ✅ 端口 443 未被占用
-- ✅ Root 权限
+## 客户端教程 / Client Tutorial
 
-### 一键安装
+👉 **[ssr.dedyn.io](https://ssr.dedyn.io)**
 
-SSH 登录 VPS，执行：
+推荐客户端 / Recommended clients:
+- **iOS**: Shadowrocket
+- **Android**: v2rayNG
+- **Windows**: v2rayN
+- **macOS**: V2rayU
+
+---
+
+## Cloudflare CDN（推荐）
+
+1. 域名 DNS 管理中开启橙色云朵 (Proxied)
+2. SSL/TLS 模式选择 **Full (strict)**
+3. 开启后 VPS IP 被隐藏，极其稳定
+
+---
+
+## 管理命令 / Management
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.3.1/install-simple.sh)
+ai-xray
 ```
 
-### 安装过程
-
-脚本自动完成：
-1. ✅ 检测系统环境
-2. ✅ 安装依赖（curl/jq/sqlite3）
-3. ✅ 启用 BBR 加速
-4. ✅ 安装 Xray-core
-5. ✅ 生成 Reality 密钥
-6. ✅ 根据 VPS 位置选择最佳伪装目标
-7. ✅ 配置白名单路由
-8. ✅ 启动服务
-
-### 安装完成
-
-脚本输出：
-
-```
-========================================
-  AI-Xray Installation Complete
-========================================
-
-Server: 1.2.3.4:443
-UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-Public Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-Short ID: xxxxxxxxxxxxxxxx
-SNI: addons.mozilla.org
-
-VLESS Link:
-vless://xxxxxxxx@1.2.3.4:443?encryption=none&flow=xtls-rprx-vision...
-```
-
-复制 **VLESS Link** 到客户端即可使用。
+| 选项 | 说明 |
+|---|---|
+| 1 | 查看连接信息 / View connection info |
+| 2 | 重新生成伪装站 / Regenerate camouflage site |
+| 3 | 更新Xray内核 / Update Xray core |
+| 4 | 重启服务 / Restart services |
+| 5 | 查看日志 / View logs |
+| 6 | 查看状态 / Check status |
+| 7 | 卸载 / Uninstall |
 
 ---
 
-## 客户端推荐
+## 推荐VPS / Recommended VPS
 
-| 平台 | 客户端 | 下载 | 教程 |
-|------|--------|------|------|
-| Windows | v2rayN | [GitHub](https://github.com/2dust/v2rayN/releases) | [入门教程](https://ssr.dedyn.io/windows/v2rayn/) |
-| macOS | ClashX Meta | [GitHub](https://github.com/MetaCubeX/ClashX.Meta/releases) | [入门教程](https://ssr.dedyn.io/macos/clashx-meta/) |
-| iOS | Shadowrocket | App Store（需美区账号） | [入门教程](https://ssr.dedyn.io/ios/shadowrocket/) |
-| Android | v2rayNG | [GitHub](https://github.com/2dust/v2rayNG/releases) | [入门教程](https://ssr.dedyn.io/android/v2rayng/) |
-
-更多客户端教程：[ssr.dedyn.io](https://ssr.dedyn.io)
+| 商家 | 链接 |
+|---|---|
+| 搬瓦工 DC8ZNET CN2 GIA | [bwh81.net](https://bwh81.net/aff.php?aff=20308) |
+| DMIT | [dmit.io](https://www.dmit.io/aff.php?aff=3138) |
+| Vultr | [vultr.com](https://www.vultr.com/?ref=9631926-9J) |
 
 ---
 
-## 白名单说明
+## 免费版 / Free Edition
 
-默认白名单仅允许访问跨境电商平台：
-
-| 平台 | 域名 |
-|------|------|
-| TikTok Business | business.tiktok.com, ads.tiktok.com, seller.tiktok.com |
-| Amazon Seller | sellercentral.amazon.com, advertising.amazon.com |
-| Google Ads | ads.google.com, merchants.google.com |
-| Meta Business | business.facebook.com |
-| Shopify | admin.shopify.com, accounts.shopify.com |
-| AI 服务 | api.openai.com, chat.openai.com, claude.ai, gemini.google.com |
-
-### 修改白名单
-
-运行交互式管理工具：
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/v1.3.1/whitelist-manager.sh)
-```
-
-菜单选项：
-- **[d]** 删除域名 - 选择编号即可删除
-- **[a]** 添加域名 - 输入域名添加到白名单
-- **[c]** 清空白名单 - 移除所有限制（全局代理）
-- **[r]** 重启服务 - 应用修改
-- **[q]** 退出
-
-⚠️ **法律提示**：本项目定位为跨境电商网络加速器。删除白名单限制后，法律责任由用户自行承担。
+不需要VPS？试试纯免费版 → [AI-Xray-Free](https://github.com/ScientificInternet/AI-Xray-Free)
 
 ---
 
-## 常见问题
+## 致谢 / Acknowledgments
 
-### 免费模式速度慢？
-
-Cloudflare 节点是共享的，速度取决于网络运营商和访问时段。如需稳定高速，使用专业模式。
-
-### 专业模式连不上？
-
-检查：
-1. VPS 防火墙是否开放 443 端口
-2. Xray 服务状态：`systemctl status xray`
-3. 查看日志：`journalctl -u xray -n 50`
-
-### 如何卸载？
-
-```bash
-systemctl stop xray
-systemctl disable xray
-rm -rf /etc/ai-xray
-rm -f /usr/local/bin/xray
-```
+Built on the shoulders of giants:
+- [Xray-core](https://github.com/XTLS/Xray-core)
+- [acme.sh](https://github.com/acmesh-official/acme.sh)
+- [Nginx](https://nginx.org/)
+- [Let's Encrypt](https://letsencrypt.org/)
 
 ---
 
-## VPS 推荐
+## 许可证 / License
 
-| 商家 | 线路 | 价格 | 适合 |
-|------|------|------|------|
-| [搬瓦工](https://bwh81.net/aff.php?aff=20308) | CN2 GIA | $49.99/年 | 电信用户 |
-| [DMIT](https://www.dmit.io/aff.php?aff=3138) | CMI | $6.9/月 | 移动用户 |
-| [Vultr](https://www.vultr.com/?ref=9631926-9J) | 全球节点 | $5/月 | 送$300免费试用 |
-
----
-
-## 技术支持
-
-- GitHub Issues: https://github.com/ScientificInternet/AI-Xray/issues
-- 协议：MIT License
-
----
-
-## 安全提示
-
-1. ✅ 不要分享你的 UUID 和密钥
-2. ✅ 定期更新 Xray 版本
-3. ✅ 不要在公共场合讨论使用细节
-4. ✅ 遵守当地法律法规
-
----
-
-## 致谢
-
-- [Xray-core](https://github.com/XTLS/Xray-core) - 核心协议
-- [edgetunnel](https://github.com/cmliu/edgetunnel) - CF Workers 免费模式基础
-- [mack-a/v2ray-agent](https://github.com/mack-a/v2ray-agent) - 安装脚本参考
-
----
-
-## 相关项目
-
-- [AI-Xray Free](https://github.com/ScientificInternet/AI-Xray-Free) - 免费版，基于 Cloudflare，零成本部署
-- [ssr.dedyn.io](https://ssr.dedyn.io) - 客户端入门教程，22个客户端全覆盖
-
----
-
-**AI-Xray** - 让跨境电商更简单。
+MIT © ScientificInternet

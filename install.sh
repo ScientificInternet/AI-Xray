@@ -1,726 +1,474 @@
 #!/bin/bash
-# AI-Xray Professional Installer with VPS Quality Check
-# https://github.com/ScientificInternet/AI-Xray
+#=============================================================================
+# AI-Xray v2.0 — 跨境电商加速器
+# VMESS + WS + TLS + CDN · AI伪装站 · 一行命令全自动安装
+#=============================================================================
 
-# 等待1秒避免curl输出冲突
-sleep 1
+set -e
 
-# Colors
-red='\e[91m'
-green='\e[92m'
-yellow='\e[93m'
-cyan='\e[96m'
-blue='\e[94m'
-none='\e[0m'
+#=== 颜色 ===================================================================
+RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"
+BLUE="\033[36m"; PLAIN="\033[0m"
+cyan="$BLUE"; green="$GREEN"; yellow="$YELLOW"; red="$RED"; none="$PLAIN"
 
-# Error handler
-error_exit() {
-    local message="$1"
-    echo ""
-    echo -e "${red}========================================${none}"
-    echo -e "${red}Installation Failed${none}"
-    echo -e "${red}========================================${none}"
-    echo ""
-    echo -e "${red}Error: ${message}${none}"
-    echo ""
-    echo -e "${yellow}Please report this issue:${none}"
-    echo -e "${cyan}https://github.com/ScientificInternet/AI-Xray/issues${none}"
-    echo ""
-    echo -e "${yellow}Include the following information:${none}"
-    echo -e "  • Error message: ${message}"
-    echo -e "  • OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2 2>/dev/null || echo 'Unknown')"
-    echo -e "  • Kernel: $(uname -r)"
-    echo ""
-    exit 1
+#=== 全局变量 ===============================================================
+XRAY_PORT=""; UUID=""; WS_PATH=""; DOMAIN=""; SITE_TYPE=""
+PMT=""; CMD_INSTALL=""; CMD_REMOVE=""; CMD_UPGRADE=""
+INFO_FILE="/etc/ai-xray/info.json"
+SITE_DIR="/usr/share/nginx/ai-xray"
+
+colorEcho() { echo -e "${1}${@:2}${PLAIN}"; }
+
+#=== 1. 系统检测 =============================================================
+checkSystem() {
+    [[ $EUID -ne 0 ]] && colorEcho $RED "请以root身份执行" && exit 1
+    if which apt &>/dev/null; then
+        PMT="apt"; CMD_INSTALL="apt install -y"; CMD_REMOVE="apt remove -y"
+        CMD_UPGRADE="apt update; apt upgrade -y; apt autoremove -y"
+    elif which yum &>/dev/null; then
+        PMT="yum"; CMD_INSTALL="yum install -y"; CMD_REMOVE="yum remove -y"
+        CMD_UPGRADE="yum update -y"
+    else
+        colorEcho $RED "不受支持的系统"; exit 1
+    fi
+    which systemctl &>/dev/null || { colorEcho $RED "系统版本过低"; exit 1; }
+    colorEcho $GREEN "✓ 系统检测通过"
 }
 
-echo -e "${cyan}========================================${none}"
-echo -e "${cyan}AI-Xray Professional Installer${none}"
-echo -e "${cyan}Cross-border E-commerce Accelerator${none}"
-echo -e "${cyan}========================================${none}"
-echo ""
-
-# Check root
-if [[ $EUID -ne 0 ]]; then
-   error_exit "This script must be run as root"
-fi
-
-# Detect system
-if [[ -f /etc/os-release ]]; then
-    . /etc/os-release
-    OS=$ID
-else
-    error_exit "Cannot detect operating system"
-fi
-
-echo -e "${green}✓ System: $OS${none}"
-
-# ==================== VPS Quality Check ====================
-echo ""
-echo -e "${cyan}========================================${none}"
-echo -e "${cyan}Step 1: VPS Quality Check${none}"
-echo -e "${cyan}========================================${none}"
-echo ""
-echo -e "${yellow}Checking your VPS quality for cross-border e-commerce...${none}"
-echo -e "${yellow}This will take 2-3 minutes.${none}"
-echo ""
-
-# Download vpscheck
-VPSCHECK_URL="https://raw.githubusercontent.com/adsorgcn/vpscheck/main/vpscheck.sh"
-VPSCHECK_TMP="/tmp/vpscheck_$$.sh"
-
-# Initialize variables
-CHATGPT_OK=0
-CLAUDE_OK=0
-GEMINI_OK=0
-NETFLIX_OK=0
-DISNEY_OK=0
-YOUTUBE_OK=0
-SPOTIFY_OK=0
-ROUTE_SCORE=0
-
-if ! curl -fsSL "$VPSCHECK_URL" -o "$VPSCHECK_TMP"; then
-    echo -e "${yellow}Warning: Cannot download vpscheck, skipping quality check${none}"
-    SKIP_CHECK=1
-fi
-
-if [[ -z "$SKIP_CHECK" ]]; then
-    # Run key checks: AI services + IP info + Route
-    echo -e "${cyan}Running AI services check...${none}"
-    
-    # Check ChatGPT
-    unsupported_chatgpt="CN HK RU IR KP SY CU BY VE"
-    country=$(curl -s ipinfo.io/country 2>/dev/null)
-    if ! echo "$unsupported_chatgpt" | grep -qw "$country"; then
-        chatgpt_response=$(curl -s -4 --max-time 10 -H "Content-Type: application/json" -w "\n%{http_code}" "https://api.openai.com/v1/models" 2>/dev/null)
-        chatgpt_status=$(echo "$chatgpt_response" | tail -n 1)
-        if [[ "$chatgpt_status" == "401" || "$chatgpt_status" == "400" ]]; then
-            CHATGPT_OK=1
-        fi
-    fi
-    
-    # Check Claude
-    unsupported_claude="CN HK RU IR KP SY CU BY"
-    if ! echo "$unsupported_claude" | grep -qw "$country"; then
-        claude_response=$(curl -s -4 --max-time 10 -X POST -H "Content-Type: application/json" -w "\n%{http_code}" "https://api.anthropic.com/v1/messages" 2>/dev/null)
-        claude_status=$(echo "$claude_response" | tail -n 1)
-        if [[ "$claude_status" == "401" || "$claude_status" == "400" ]]; then
-            CLAUDE_OK=1
-        fi
-    fi
-    
-    # Check Gemini
-    unsupported_gemini="CN RU IR KP SY CU BY"
-    if ! echo "$unsupported_gemini" | grep -qw "$country"; then
-        gemini_response=$(curl -s -4 --max-time 10 "https://generativelanguage.googleapis.com/v1beta/models?key=invalid" 2>/dev/null)
-        if echo "$gemini_response" | grep -qi "API key not valid\|models\|error"; then
-            GEMINI_OK=1
-        fi
-    fi
-    
-    echo -e "${cyan}Running IP analysis...${none}"
-    bash "$VPSCHECK_TMP" -r 10 > /tmp/vps_ip_check.txt 2>&1
-    
-    echo -e "${cyan}Running route quality check...${none}"
-    # 延迟参考表
-    declare -A LATENCY_REF=(
-        ["guangzhou_hongkong"]="5|10"
-        ["guangzhou_singapore"]="45|60"
-        ["guangzhou_tokyo"]="60|80"
-        ["guangzhou_losangeles"]="150|180"
-        ["shanghai_hongkong"]="35|50"
-        ["shanghai_singapore"]="65|85"
-        ["shanghai_tokyo"]="27|40"
-        ["shanghai_losangeles"]="127|150"
-        ["beijing_hongkong"]="45|60"
-        ["beijing_singapore"]="75|95"
-        ["beijing_tokyo"]="40|55"
-        ["beijing_losangeles"]="140|170"
-        ["chengdu_hongkong"]="40|55"
-        ["chengdu_singapore"]="60|80"
-        ["chengdu_tokyo"]="80|100"
-        ["chengdu_losangeles"]="170|200"
-        ["wuhan_hongkong"]="30|45"
-        ["wuhan_singapore"]="60|80"
-        ["wuhan_tokyo"]="50|70"
-        ["wuhan_losangeles"]="150|180"
-    )
-    
-    # 检测源地区
-    IP_INFO=$(curl -s ipinfo.io 2>/dev/null || curl -s ip-api.com/json 2>/dev/null)
-    CITY=$(echo "$IP_INFO" | grep -i "city\|region" | head -1 | grep -oP '(?<=:")[^"]+' | tr '[:upper:]' '[:lower:]')
-    
-    case "$CITY" in
-        *guangzhou*|*shenzhen*|*dongguan*|*foshan*) SOURCE_REGION="guangzhou" ;;
-        *shanghai*|*hangzhou*|*nanjing*|*suzhou*) SOURCE_REGION="shanghai" ;;
-        *beijing*|*tianjin*) SOURCE_REGION="beijing" ;;
-        *chengdu*|*chongqing*) SOURCE_REGION="chengdu" ;;
-        *wuhan*|*changsha*) SOURCE_REGION="wuhan" ;;
-        *) SOURCE_REGION="shanghai" ;;  # 默认上海
-    esac
-    
-    # 测试延迟
-    declare -A TARGETS=(
-        ["hongkong"]="www.hk"
-        ["singapore"]="www.gov.sg"
-        ["tokyo"]="www.yahoo.co.jp"
-        ["losangeles"]="www.ucla.edu"
-    )
-    
-    declare -A ROUTE_RESULTS
-    
-    for target_name in "${!TARGETS[@]}"; do
-        target_host="${TARGETS[$target_name]}"
-        latency=$(ping -c 3 -W 2 "$target_host" 2>/dev/null | grep 'avg' | awk -F'/' '{print $5}' | cut -d'.' -f1)
-        
-        key="${SOURCE_REGION}_${target_name}"
-        ref="${LATENCY_REF[$key]}"
-        
-        if [[ -z "$latency" || "$latency" == "0" ]]; then
-            # Ping failed
-            ROUTE_RESULTS[$target_name]="failed|0|0"
-        elif [[ -n "$ref" ]]; then
-            standard=$(echo "$ref" | cut -d'|' -f1)
-            tolerance=$(echo "$ref" | cut -d'|' -f2)
-            
-            # 判断路由质量
-            if [[ $latency -le $tolerance ]]; then
-                ROUTE_RESULTS[$target_name]="direct|$latency|$standard"
-                ((ROUTE_SCORE++))
-            else
-                excess=$((latency - standard))
-                if [[ $excess -gt 100 ]]; then
-                    ROUTE_RESULTS[$target_name]="detour_major|$latency|$standard"
-                else
-                    ROUTE_RESULTS[$target_name]="detour_minor|$latency|$standard"
-                fi
-            fi
-        else
-            # No reference data
-            ROUTE_RESULTS[$target_name]="unknown|$latency|0"
-        fi
+#=== 2. 用户输入 =============================================================
+getData() {
+    echo ""; echo -e "${BLUE}AI-Xray 跨境电商加速器 v2.0${PLAIN}"; echo ""
+    while [[ -z "$DOMAIN" ]]; do
+        read -p "请输入你的域名（必须已解析到本服务器）: " DOMAIN
     done
-    
-    echo -e "${cyan}Running streaming unlock check...${none}"
-    
-    # Pin RegionRestrictionCheck to specific commit
-    REGION_CHECK_COMMIT="b6d4a6f9a87fc6eae6d3e62d0092ececcec8e844"
-    REGION_CHECK_SHA256="9c0ec7f81a39743c91df9636924f7b308b96fbc038b84b95040d6eb48f8da8cd"
-    
-    curl -fsSL "https://raw.githubusercontent.com/lmc999/RegionRestrictionCheck/${REGION_CHECK_COMMIT}/check.sh" -o /tmp/region_check.sh
-    
-    # Verify checksum
-    if ! echo "${REGION_CHECK_SHA256}  /tmp/region_check.sh" | sha256sum -c --status; then
-        error_exit "RegionRestrictionCheck checksum verification failed"
+    DOMAIN=${DOMAIN,,}
+    colorEcho $BLUE "域名：$DOMAIN"
+
+    echo ""; echo "请选择伪装站类型[默认：1]:"
+    echo "  1) AI协议文档站（AI自动生成，推荐）"
+    echo "  2) 加密工具站"
+    echo "  3) 学生福利导航站"
+    echo "  4) 不需要伪装站"
+    read -p "选择[1]: " SITE_TYPE
+    SITE_TYPE=${SITE_TYPE:-1}
+    colorEcho $BLUE "伪装站类型：$SITE_TYPE"
+}
+
+#=== 3. VPS质量检测 ===========================================================
+vps_check() {
+    echo ""; colorEcho $BLUE "VPS质量检测..."
+    AI_OK=0
+    curl -sI --max-time 5 "https://api.openai.com" >/dev/null 2>&1 && AI_OK=1
+    curl -sI --max-time 5 "https://api.anthropic.com" >/dev/null 2>&1 && AI_OK=1
+    curl -sI --max-time 5 "https://generativelanguage.googleapis.com" >/dev/null 2>&1 && AI_OK=1
+    [[ $AI_OK -eq 1 ]] && colorEcho $GREEN "✓ AI服务连通" || colorEcho $RED "✗ AI服务不通"
+    LATENCY=$(ping -c 3 google.com 2>/dev/null | tail -1 | awk -F'/' '{print $5}')
+    [[ -n "$LATENCY" ]] && colorEcho $GREEN "✓ 延迟: ${LATENCY}ms" || colorEcho $YELLOW "△ 无法测延迟"
+    BBR=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | grep bbr)
+    [[ -n "$BBR" ]] && colorEcho $GREEN "✓ BBR已开启" || colorEcho $YELLOW "△ BBR未开启，将自动开启"
+}
+
+#=== 4. 安装依赖 =============================================================
+installDeps() {
+    echo ""; colorEcho $BLUE "安装依赖..."
+    if [[ "$PMT" == "apt" ]]; then
+        apt update -qq
     fi
-    
-    bash /tmp/region_check.sh -M 4 -E en > /tmp/vps_streaming_check.txt 2>&1
-    rm -f /tmp/region_check.sh
-    
-    # Parse results
-    echo ""
-    echo -e "${cyan}========================================${none}"
-    echo -e "${cyan}VPS Quality Report / VPS 质量报告${none}"
-    echo -e "${cyan}========================================${none}"
-    
-    # Check streaming services
-    NETFLIX_OK=$(grep -i "netflix" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
-    DISNEY_OK=$(grep -i "disney" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
-    YOUTUBE_OK=$(grep -i "youtube premium" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
-    SPOTIFY_OK=$(grep -i "spotify" /tmp/vps_streaming_check.txt | grep -i "yes\|unlock\|解锁" | wc -l)
-    
-    # Check IP type
-    IP_TYPE=$(grep -i "IP类型\|IP Type" /tmp/vps_ip_check.txt | head -1)
-    
-    # Display results
-    echo ""
-    echo -e "${blue}AI Services / AI 服务:${none}"
-    [[ $CHATGPT_OK -gt 0 ]] && echo -e "  ${green}✓ ChatGPT${none}" || echo -e "  ${red}✗ ChatGPT${none}"
-    [[ $CLAUDE_OK -gt 0 ]] && echo -e "  ${green}✓ Claude${none}" || echo -e "  ${red}✗ Claude${none}"
-    [[ $GEMINI_OK -gt 0 ]] && echo -e "  ${green}✓ Gemini${none}" || echo -e "  ${red}✗ Gemini${none}"
-    
-    echo ""
-    echo -e "${blue}Streaming Services / 流媒体服务:${none}"
-    [[ $NETFLIX_OK -gt 0 ]] && echo -e "  ${green}✓ Netflix${none}" || echo -e "  ${red}✗ Netflix${none}"
-    [[ $DISNEY_OK -gt 0 ]] && echo -e "  ${green}✓ Disney+${none}" || echo -e "  ${red}✗ Disney+${none}"
-    [[ $YOUTUBE_OK -gt 0 ]] && echo -e "  ${green}✓ YouTube Premium${none}" || echo -e "  ${red}✗ YouTube Premium${none}"
-    [[ $SPOTIFY_OK -gt 0 ]] && echo -e "  ${green}✓ Spotify${none}" || echo -e "  ${red}✗ Spotify${none}"
-    
-    echo ""
-    echo -e "${blue}Route Quality / 路由质量 (from ${SOURCE_REGION}):${none}"
-    for target in "${!ROUTE_RESULTS[@]}"; do
-        result="${ROUTE_RESULTS[$target]}"
-        IFS='|' read -r status latency standard <<< "$result"
-        
-        case "$status" in
-            direct)
-                echo -e "  ${green}✓ ${target}: ${latency}ms${none} (Standard: ${standard}ms)"
-                ;;
-            detour_minor)
-                echo -e "  ${yellow}⚠ ${target}: ${latency}ms${none} (Standard: ${standard}ms, +$((latency - standard))ms)"
-                echo -e "    ${yellow}Domestic detour / 国内绕路${none}"
-                ;;
-            detour_major)
-                echo -e "  ${red}✗ ${target}: ${latency}ms${none} (Standard: ${standard}ms, +$((latency - standard))ms)"
-                echo -e "    ${red}Major detour detected / 严重绕路${none}"
-                ;;
-            failed)
-                echo -e "  ${red}✗ ${target}: ${none}${red}Ping failed / 检测失败${none}"
-                ;;
-            unknown)
-                echo -e "  ${yellow}? ${target}: ${latency}ms${none} (No reference data / 无参考数据)"
-                ;;
-        esac
+    for pkg in curl wget unzip jq openssl socat nginx; do
+        $CMD_INSTALL $pkg 2>/dev/null
     done
-    
-    echo ""
-    echo -e "${blue}IP Information / IP 信息:${none}"
-    echo -e "  $IP_TYPE"
-    
-    # Overall recommendation
-    echo ""
-    echo -e "${cyan}========================================${none}"
-    SCORE=0
-    [[ $CHATGPT_OK -gt 0 ]] && ((SCORE++))
-    [[ $CLAUDE_OK -gt 0 ]] && ((SCORE++))
-    [[ $GEMINI_OK -gt 0 ]] && ((SCORE++))
-    [[ $NETFLIX_OK -gt 0 ]] && ((SCORE++))
-    [[ $DISNEY_OK -gt 0 ]] && ((SCORE++))
-    [[ $ROUTE_SCORE -ge 3 ]] && ((SCORE+=2))  # 路由质量好加 2 分
-    [[ $ROUTE_SCORE -ge 2 ]] && ((SCORE+=1))  # 路由质量一般加 1 分
-    
-    if [[ $SCORE -ge 6 ]]; then
-        echo -e "${green}✓ Excellent VPS / 优秀 VPS${none}"
-        echo -e "${green}  Recommended for / 推荐用于:${none}"
-        echo -e "${green}  • Cross-border e-commerce / 跨境电商${none}"
-        echo -e "${green}  • AI tools / AI 工具${none}"
-        echo -e "${green}  • Streaming services / 流媒体服务${none}"
-    elif [[ $SCORE -ge 3 ]]; then
-        echo -e "${yellow}⚠ Good VPS / 良好 VPS${none}"
-        echo -e "${yellow}  Suitable for most tasks / 适合大多数任务${none}"
-        echo -e "${yellow}  Some services may be restricted / 部分服务可能受限${none}"
+    systemctl enable nginx 2>/dev/null
+    colorEcho $GREEN "✓ 依赖安装完成"
+}
+
+#=== 5. 安装Xray =============================================================
+installXray() {
+    echo ""; colorEcho $BLUE "安装Xray..."
+    bash -c "$(curl -sL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --version latest 2>/dev/null
+    systemctl enable xray 2>/dev/null
+    colorEcho $GREEN "✓ Xray安装完成"
+}
+
+#=== 6. 申请证书 =============================================================
+installCert() {
+    echo ""; colorEcho $BLUE "申请证书..."
+    systemctl stop nginx 2>/dev/null || true
+    systemctl stop xray 2>/dev/null || true
+
+    # 检查端口
+    res=$(ss -ntlp | grep -E ':80 |:443 ' 2>/dev/null)
+    if [[ -n "$res" ]]; then
+        colorEcho $RED "80/443端口被占用，请先释放"
+        echo "$res"; exit 1
+    fi
+
+    $CMD_INSTALL socat openssl 2>/dev/null
+    if [[ "$PMT" == "yum" ]]; then
+        $CMD_INSTALL cronie 2>/dev/null
+        systemctl start crond 2>/dev/null; systemctl enable crond 2>/dev/null
     else
-        echo -e "${red}✗ Poor VPS / 较差 VPS${none}"
-        echo -e "${red}  Consider a different provider / 建议更换服务商${none}"
-        echo -e "${red}  Recommended: US/EU native IP / 推荐：美欧原生 IP${none}"
-        echo ""
+        $CMD_INSTALL cron 2>/dev/null
+        systemctl start cron 2>/dev/null; systemctl enable cron 2>/dev/null
     fi
-    
-    # 提示详细路由检测
-    if [[ $ROUTE_SCORE -lt 3 ]]; then
-        echo ""
-        echo -e "${yellow}For detailed route analysis / 详细路由分析:${none}"
-        echo -e "  ${cyan}curl -sL https://nxtrace.org/nt | bash${none}"
-        echo -e "  ${cyan}nexttrace google.com${none}"
-    fi
-    
-    # Cleanup
-    rm -f "$VPSCHECK_TMP" /tmp/vps_*_check.txt
-fi
 
-# ==================== Install Dependencies ====================
-echo ""
-echo -e "${cyan}========================================${none}"
-echo -e "${cyan}Step 2: Install Dependencies${none}"
-echo -e "${cyan}========================================${none}"
-echo ""
+    curl -sL https://get.acme.sh | sh
+    source ~/.bashrc
+    ~/.acme.sh/acme.sh --upgrade --auto-upgrade 2>/dev/null
+    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+    ~/.acme.sh/acme.sh --issue -d ${DOMAIN} --keylength ec-256 --standalone --force
 
-case $OS in
-    ubuntu|debian)
-        apt-get update -qq
-        apt-get install -y curl wget unzip openssl >/dev/null 2>&1
-        ;;
-    centos|rhel|rocky|almalinux)
-        yum install -y curl wget unzip openssl >/dev/null 2>&1
-        ;;
-    *)
-        error_exit "Unsupported OS: $OS"
-        ;;
-esac
+    mkdir -p /root/.acme.sh/${DOMAIN}_ecc
+    ~/.acme.sh/acme.sh --install-cert -d ${DOMAIN} --ecc \
+        --key-file /root/.acme.sh/${DOMAIN}_ecc/${DOMAIN}.key \
+        --fullchain-file /root/.acme.sh/${DOMAIN}_ecc/fullchain.cer
 
-echo -e "${green}✓ Dependencies installed${none}"
+    [[ -f /root/.acme.sh/${DOMAIN}_ecc/fullchain.cer ]] || {
+        colorEcho $RED "证书申请失败"; exit 1
+    }
+    colorEcho $GREEN "✓ 证书申请成功"
+}
 
-# ==================== Install Xray ====================
-echo ""
-echo -e "${cyan}========================================${none}"
-echo -e "${cyan}Step 3: Install Xray-core${none}"
-echo -e "${cyan}========================================${none}"
-echo ""
+#=== 7. 生成配置 =============================================================
+generateConfig() {
+    echo ""; colorEcho $BLUE "生成配置..."
 
-# Install Xray-core with pinned version and checksum verification
-XRAY_INSTALL_COMMIT="e741a4f5"
-XRAY_INSTALL_SHA256="7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555"
-XRAY_INSTALL_URL="https://raw.githubusercontent.com/XTLS/Xray-install/${XRAY_INSTALL_COMMIT}/install-release.sh"
-XRAY_INSTALL_TMP="/tmp/xray-install-$$.sh"
+    XRAY_PORT=$((10000 + RANDOM % 55535))
+    UUID=$(cat /proc/sys/kernel/random/uuid)
+    len=$(shuf -i5-12 -n1)
+    ws=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w $len | head -n 1)
+    WS_PATH="/$ws"
 
-echo -e "${cyan}Downloading Xray installer (pinned: ${XRAY_INSTALL_COMMIT})...${none}"
-if ! curl -fsSL "$XRAY_INSTALL_URL" -o "$XRAY_INSTALL_TMP"; then
-    error_exit "Failed to download Xray installer"
-    return
-fi
-
-echo -e "${cyan}Verifying checksum...${none}"
-echo "${XRAY_INSTALL_SHA256}  ${XRAY_INSTALL_TMP}" | sha256sum -c - >/dev/null 2>&1
-if [[ $? -ne 0 ]]; then
-    rm -f "$XRAY_INSTALL_TMP"
-    error_exit "Checksum verification failed"
-fi
-
-echo -e "${cyan}Installing Xray-core...${none}"
-bash "$XRAY_INSTALL_TMP" install >/dev/null 2>&1
-rm -f "$XRAY_INSTALL_TMP"
-
-if ! command -v xray >/dev/null 2>&1; then
-    error_exit "Xray installation failed"
-fi
-
-xray_version=$(xray version 2>/dev/null | head -1 | awk '{print $2}')
-
-# ==================== Generate Keys ====================
-echo ""
-echo -e "${cyan}========================================${none}"
-echo -e "${cyan}Step 4: Generate Reality Keys${none}"
-echo -e "${cyan}========================================${none}"
-echo ""
-
-keys=$(xray x25519)
-PRIVATE_KEY=$(echo "$keys" | grep "Private" | awk '{print $NF}')
-PUBLIC_KEY=$(echo "$keys" | grep "Public" | awk '{print $NF}')
-UUID=$(xray uuid)
-SHORT_ID=$(openssl rand -hex 8)
-
-echo -e "${green}✓ Keys generated${none}"
-
-# ==================== Detect Server Info ====================
-echo ""
-echo -e "${cyan}========================================${none}"
-echo -e "${cyan}Step 5: Detect Server Information${none}"
-echo -e "${cyan}========================================${none}"
-echo ""
-
-SERVER_IP=$(curl -s --max-time 3 https://api.ipify.org || curl -s --max-time 3 https://ifconfig.me || echo "YOUR_SERVER_IP")
-REGION=$(curl -s --max-time 3 https://ifconfig.co/country-iso || echo "US")
-
-case $REGION in
-    US|CA|MX)
-        DEST="addons.mozilla.org"
-        ;;
-    GB|DE|FR|NL|IT|ES)
-        DEST="www.cisco.com"
-        ;;
-    *)
-        DEST="www.apple.com"
-        ;;
-esac
-
-echo -e "${green}✓ Server IP: $SERVER_IP${none}"
-echo -e "${green}✓ Region: $REGION${none}"
-echo -e "${green}✓ SNI: $DEST${none}"
-
-# ==================== Write Configuration ====================
-echo ""
-echo -e "${cyan}========================================${none}"
-echo -e "${cyan}Step 6: Configure Xray Reality${none}"
-echo -e "${cyan}========================================${none}"
-echo ""
-
-cat > /usr/local/etc/xray/config.json << EOF
+    mkdir -p /usr/local/etc/xray
+    cat > /usr/local/etc/xray/config.json << XEOF
 {
   "log": {
-    "loglevel": "warning"
+    "loglevel": "warning",
+    "access": "/var/log/xray/access.log",
+    "error": "/var/log/xray/error.log"
   },
-  "inbounds": [
-    {
-      "tag": "reality-in",
-      "listen": "0.0.0.0",
-      "port": 443,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "$UUID",
-            "flow": "xtls-rprx-vision"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "$DEST:443",
-          "xver": 0,
-          "serverNames": ["$DEST"],
-          "privateKey": "$PRIVATE_KEY",
-          "shortIds": ["", "$SHORT_ID"]
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls"]
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "tag": "direct",
-      "protocol": "freedom"
+  "inbounds": [{
+    "tag": "vmess-ws",
+    "port": ${XRAY_PORT},
+    "listen": "127.0.0.1",
+    "protocol": "vmess",
+    "settings": {
+      "clients": [{"id": "${UUID}"}]
     },
-    {
-      "tag": "block",
-      "protocol": "blackhole"
+    "streamSettings": {
+      "network": "ws",
+      "wsSettings": {"path": "${WS_PATH}"}
     }
-  ],
-  "routing": {
-    "domainStrategy": "IPIfNonMatch",
-    "rules": [
-      {
-        "type": "field",
-        "domain": [
-          "geosite:category-ads-all",
-          "geosite:category-ads"
-        ],
-        "outboundTag": "block"
-      },
-      {
-        "type": "field",
-        "domain": [
-          "domain:tiktok.com",
-          "domain:amazon.com",
-          "domain:google.com",
-          "domain:googleapis.com",
-          "domain:facebook.com",
-          "domain:fbcdn.net",
-          "domain:shopify.com",
-          "domain:openai.com",
-          "domain:anthropic.com",
-          "domain:claude.ai",
-          "domain:stripe.com",
-          "domain:paypal.com",
-          "domain:aliexpress.com",
-          "domain:ebay.com",
-          "domain:etsy.com",
-          "domain:walmart.com",
-          "domain:cloudflare.com",
-          "domain:amazonaws.com",
-          "domain:github.com",
-          "domain:netflix.com",
-          "domain:disneyplus.com",
-          "domain:youtube.com",
-          "domain:spotify.com",
-          "domain:hulu.com",
-          "domain:perplexity.ai",
-          "domain:mistral.ai",
-          "domain:cohere.com",
-          "domain:huggingface.co"
-        ],
-        "outboundTag": "direct"
-      },
-      {
-        "type": "field",
-        "ip": ["geoip:private"],
-        "outboundTag": "block"
-      }
-    ]
-  }
+  }],
+  "outbounds": [
+    {"protocol": "freedom", "tag": "direct"},
+    {"protocol": "blackhole", "tag": "blocked"}
+  ]
+}
+XEOF
+
+    mkdir -p /etc/nginx/conf.d 2>/dev/null || true
+    cat > /etc/nginx/conf.d/ai-xray.conf << NEOF
+server {
+    listen 443 ssl http2;
+    server_name ${DOMAIN};
+    ssl_certificate /root/.acme.sh/${DOMAIN}_ecc/fullchain.cer;
+    ssl_certificate_key /root/.acme.sh/${DOMAIN}_ecc/${DOMAIN}.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    location ${WS_PATH} {
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:${XRAY_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+
+    location / {
+        root ${SITE_DIR};
+        index index.html;
+        try_files \$uri \$uri/ =404;
+    }
+}
+server {
+    listen 80;
+    server_name ${DOMAIN};
+    return 301 https://\$host\$request_uri;
+}
+NEOF
+
+    # 如果nginx默认用sites-available，创建软链
+    if [[ -d /etc/nginx/sites-available ]]; then
+        ln -sf /etc/nginx/conf.d/ai-xray.conf /etc/nginx/sites-available/ai-xray
+        ln -sf /etc/nginx/sites-available/ai-xray /etc/nginx/sites-enabled/ai-xray 2>/dev/null || true
+    fi
+
+    colorEcho $GREEN "✓ 配置生成完成"
+}
+
+#=== 8. 伪装站生成（三层fallback） ============================================
+generateSite() {
+    mkdir -p ${SITE_DIR}
+
+    if [[ "$SITE_TYPE" == "4" ]]; then
+        echo '<html><body>.</body></html>' > ${SITE_DIR}/index.html
+        colorEcho $GREEN "✓ 跳过伪装站"
+        return 0
+    fi
+
+    # Level 1: AI实时生成
+    echo ""; colorEcho $BLUE "正在生成专属伪装站..."
+    SITE_HTML=$(curl -fsSL --max-time 30 "https://aixray.fluxrouter.net/generate?type=${SITE_TYPE}&lang=en" 2>/dev/null)
+    if [[ $? -eq 0 ]] && [[ ${#SITE_HTML} -gt 500 ]]; then
+        echo "$SITE_HTML" > ${SITE_DIR}/index.html
+        colorEcho $GREEN "✓ AI专属伪装站已生成"
+        return 0
+    fi
+
+    # Level 2: 公开模板池 + 本地渲染
+    colorEcho $YELLOW "AI生成临时不可用，使用本地模板..."
+    TEMPLATES_URL="https://raw.githubusercontent.com/ScientificInternet/ai-xray-sites/main"
+    MANIFEST=$(curl -fsSL --max-time 10 "${TEMPLATES_URL}/manifest.json" 2>/dev/null)
+    if [[ $? -eq 0 ]]; then
+        TEMPLATE_COUNT=$(echo "$MANIFEST" | jq '.templates | length' 2>/dev/null)
+        if [[ "$TEMPLATE_COUNT" -gt 0 ]]; then
+            RANDOM_INDEX=$((RANDOM % TEMPLATE_COUNT))
+            TEMPLATE_NAME=$(echo "$MANIFEST" | jq -r ".templates[$RANDOM_INDEX].name")
+            TEMPLATE_HASH=$(echo "$MANIFEST" | jq -r ".templates[$RANDOM_INDEX].sha256")
+            curl -fsSL --max-time 15 "${TEMPLATES_URL}/templates/${TEMPLATE_NAME}.tar.gz" -o /tmp/template.tar.gz
+            if [[ -f /tmp/template.tar.gz ]]; then
+                ACTUAL_HASH=$(sha256sum /tmp/template.tar.gz | cut -d' ' -f1)
+                if [[ "$ACTUAL_HASH" == "$TEMPLATE_HASH" ]]; then
+                    mkdir -p /tmp/ai-xray-template
+                    tar xzf /tmp/template.tar.gz -C /tmp/ai-xray-template/
+                    SEED="$(hostname)-$(date +%s)-${RANDOM}"
+                    find /tmp/ai-xray-template -name '*.html' -exec sed -i "s/{{SITE_TITLE}}/I-Lang Protocol v3.${RANDOM:0:1}.${RANDOM:0:2}/g; s/{{BUILD_ID}}/$(echo $SEED | md5sum | cut -c1-8)/g; s/{{YEAR}}/$(date +%Y)/g" {} \;
+                    cp -r /tmp/ai-xray-template/* ${SITE_DIR}/
+                    rm -rf /tmp/template.tar.gz /tmp/ai-xray-template/
+                    colorEcho $GREEN "✓ 本地模板伪装站已生成"
+                    return 0
+                fi
+            fi
+            rm -f /tmp/template.tar.gz
+        fi
+    fi
+
+    # Level 3: jiami.dog 反代
+    colorEcho $YELLOW "启用临时默认站点..."
+    cat > ${SITE_DIR}/index.html << 'FALLBACK'
+<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=https://jiami.dog"></head><body></body></html>
+FALLBACK
+    colorEcho $GREEN "✓ 临时默认站点已启用"
+}
+
+#=== 9. 开启BBR ==============================================================
+enableBBR() {
+    echo ""; colorEcho $BLUE "开启BBR..."
+    echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+    echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+    sysctl -p >/dev/null 2>&1
+    colorEcho $GREEN "✓ BBR已开启"
+}
+
+#=== 10. 启动服务 ============================================================
+startServices() {
+    echo ""; colorEcho $BLUE "启动服务..."
+    systemctl restart xray; systemctl restart nginx
+    sleep 2
+    if systemctl is-active --quiet xray && systemctl is-active --quiet nginx; then
+        colorEcho $GREEN "✓ Xray + Nginx 运行中"
+    else
+        colorEcho $RED "✗ 服务启动失败，请检查日志"
+        colorEcho $YELLOW "  journalctl -u xray --no-pager -n 20"
+        colorEcho $YELLOW "  journalctl -u nginx --no-pager -n 20"
+        exit 1
+    fi
+}
+
+#=== 11. 保存信息 =============================================================
+saveInfo() {
+    IP=$(curl -s4m5 https://ip.gs || echo "unknown")
+    mkdir -p /etc/ai-xray
+    cat > ${INFO_FILE} << EOF
+{
+  "version": "2.0.0",
+  "domain": "${DOMAIN}",
+  "port": 443,
+  "uuid": "${UUID}",
+  "protocol": "vmess",
+  "network": "ws",
+  "tls": "tls",
+  "wsPath": "${WS_PATH}",
+  "ip": "${IP}",
+  "siteType": "${SITE_TYPE}"
 }
 EOF
-
-echo -e "${green}✓ Configuration written${none}"
-
-# ==================== Enable BBR ====================
-echo ""
-echo -e "${cyan}========================================${none}"
-echo -e "${cyan}Step 7: Enable BBR Congestion Control${none}"
-echo -e "${cyan}========================================${none}"
-echo ""
-
-sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
-echo "net.ipv4.tcp_congestion_control = bbr" >> /etc/sysctl.conf
-echo "net.core.default_qdisc = fq" >> /etc/sysctl.conf
-sysctl -p >/dev/null 2>&1
-
-echo -e "${green}✓ BBR enabled${none}"
-
-# ==================== Start Service ====================
-echo ""
-echo -e "${cyan}========================================${none}"
-echo -e "${cyan}Step 8: Start Xray Service${none}"
-echo -e "${cyan}========================================${none}"
-echo ""
-
-systemctl restart xray
-systemctl enable xray >/dev/null 2>&1
-
-if systemctl is-active --quiet xray; then
-    echo -e "${green}✓ Xray service started${none}"
-else
-    error_exit "Xray service failed to start. Check logs: journalctl -u xray -n 50"
-fi
-
-# ==================== Installation Complete ====================
-echo ""
-echo -e "${green}Installation Complete!${none}"
-echo -e "${green}========================================${none}"
-echo ""
-echo -e "${cyan}Server Information:${none}"
-echo -e "  Address: ${green}$SERVER_IP:443${none}"
-echo -e "  UUID: ${green}$UUID${none}"
-echo -e "  Public Key: ${green}$PUBLIC_KEY${none}"
-echo -e "  Short ID: ${green}$SHORT_ID${none}"
-echo -e "  SNI: ${green}$DEST${none}"
-echo ""
-echo -e "${cyan}VLESS Link:${none}"
-echo "vless://${UUID}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DEST}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&headerType=none#AI-Xray"
-echo ""
-echo -e "${cyan}Whitelist (Cross-border E-commerce):${none}"
-echo -e "  ${green}✓${none} TikTok Business / Ads / Seller"
-echo -e "  ${green}✓${none} Amazon Seller Central / Advertising"
-echo -e "  ${green}✓${none} Google Ads / Merchant Center"
-echo -e "  ${green}✓${none} Facebook Business / Ads"
-echo -e "  ${green}✓${none} Shopify Admin"
-echo -e "  ${green}✓${none} ChatGPT / Claude / Gemini"
-echo ""
-echo -e "${yellow}Note:${none} Only whitelisted domains are allowed by default."
-echo -e "${yellow}Edit whitelist:${none} nano /usr/local/etc/xray/config.json"
-echo ""
-# ==================== Interactive Whitelist Configuration ====================
-
-whitelist_interactive_config() {
-    local CONFIG_FILE="/usr/local/etc/xray/config.json"
-    
-    while true; do
-        echo ""
-        echo -e "${cyan}========================================${none}"
-        echo -e "${cyan}  Whitelist Configuration / 白名单配置${none}"
-        echo -e "${cyan}========================================${none}"
-        echo ""
-        
-        # Count domains
-        DOMAIN_COUNT=$(python3 -c "import json; data=json.load(open('$CONFIG_FILE')); print(sum(len(r.get('domain',[])) for r in data.get('routing',{}).get('rules',[]) if r.get('outboundTag')=='direct'))" 2>/dev/null || echo "0")
-        
-        echo -e "${green}Current whitelist ($DOMAIN_COUNT domains) / 当前白名单（${DOMAIN_COUNT}个域名）${none}"
-        echo ""
-        echo -e "${yellow}Options / 选项：${none}"
-        echo -e "  ${cyan}[v]${none} View all domains / 查看所有域名"
-        echo -e "  ${cyan}[d]${none} Delete domain / 删除域名"
-        echo -e "  ${cyan}[a]${none} Add domain / 添加域名"
-        echo -e "  ${cyan}[c]${none} Clear all / 清空全部"
-        echo -e "  ${cyan}[k]${none} Keep current settings / 保持当前设置"
-        echo ""
-        echo -ne "${yellow}Choose an option / 请选择 [k]: ${none}"
-        read -r CHOICE
-        
-        # Default to keep
-        CHOICE=${CHOICE:-k}
-        
-        case "$CHOICE" in
-            v|V)
-                echo ""
-                echo -e "${cyan}All domains / 所有域名：${none}"
-                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
-                ;;
-            d|D)
-                echo ""
-                echo -e "${cyan}Current domains / 当前域名：${none}"
-                jq -r '.routing.rules[] | select(.outboundTag=="direct") | .domain[]' "$CONFIG_FILE" | nl
-                echo ""
-                echo -ne "${yellow}Enter number to delete / 输入要删除的编号: ${none}"
-                read -r NUM
-                
-                if [[ "$NUM" =~ ^[0-9]+$ ]]; then
-                    INDEX=$((NUM - 1))
-                    DOMAIN=$(jq -r ".routing.rules[] | select(.outboundTag==\"direct\") | .domain[$INDEX]" "$CONFIG_FILE")
-                    
-                    if [[ -n "$DOMAIN" && "$DOMAIN" != "null" ]]; then
-                        jq "(.routing.rules[] | select(.outboundTag==\"direct\") | .domain) |= del(.[$INDEX])" "$CONFIG_FILE" > /tmp/config.tmp
-                        mv /tmp/config.tmp "$CONFIG_FILE"
-                        echo -e "${green}✓ Deleted / 已删除: $DOMAIN${none}"
-                        systemctl restart xray
-                        echo -e "${green}✓ Service restarted / 服务已重启${none}"
-                    else
-                        echo -e "${red}Invalid number / 无效编号${none}"
-                    fi
-                else
-                    echo -e "${red}Invalid input / 无效输入${none}"
-                fi
-                ;;
-            a|A)
-                echo ""
-                echo -ne "${yellow}Enter domain to add / 输入要添加的域名: ${none}"
-                read -r DOMAIN
-                
-                if [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
-                    jq --arg domain "domain:$DOMAIN" '(.routing.rules[] | select(.outboundTag=="direct") | .domain) += [$domain]' "$CONFIG_FILE" > /tmp/config.tmp
-                    mv /tmp/config.tmp "$CONFIG_FILE"
-                    echo -e "${green}✓ Added / 已添加: domain:$DOMAIN${none}"
-                    systemctl restart xray
-                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
-                else
-                    echo -e "${red}Invalid domain format / 域名格式无效${none}"
-                fi
-                ;;
-            c|C)
-                echo ""
-                echo -e "${red}========================================${none}"
-                echo -e "${red}  WARNING: Terms of Service / 警告：服务条款${none}"
-                echo -e "${red}========================================${none}"
-                echo ""
-                echo -e "${yellow}You are about to remove all domain restrictions.${none}"
-                echo -e "${yellow}您即将移除所有域名限制。${none}"
-                echo ""
-                echo -e "${yellow}This will allow access to ANY website through this proxy.${none}"
-                echo -e "${yellow}这将允许通过此代理访问任何网站。${none}"
-                echo ""
-                echo -e "${cyan}Legal Notice / 法律声明：${none}"
-                echo -e "  • This software is designed for cross-border e-commerce"
-                echo -e "    本软件专为跨境电商设计"
-                echo -e "  • Removing restrictions is at your own risk"
-                echo -e "    移除限制风险自负"
-                echo -e "  • You are responsible for compliance with local laws"
-                echo -e "    您需遵守当地法律"
-                echo -e "  • The author assumes no liability for misuse"
-                echo -e "    作者不承担滥用责任"
-                echo ""
-                echo -ne "${yellow}Type 'YES' or 'Y' to confirm / 输入 YES 或 Y 确认: ${none}"
-                read -r CONFIRM
-                
-                if [[ "$CONFIRM" == "YES" || "$CONFIRM" == "Y" ]]; then
-                    # Remove the whitelist rule, keep only ad blocking
-                    jq 'del(.routing.rules[] | select(.outboundTag=="direct"))' "$CONFIG_FILE" > /tmp/config.tmp
-                    mv /tmp/config.tmp "$CONFIG_FILE"
-                    echo ""
-                    echo -e "${green}✓ All restrictions removed / 所有限制已移除${none}"
-                    echo -e "${green}✓ Configuration updated / 配置已更新${none}"
-                    systemctl restart xray
-                    echo -e "${green}✓ Service restarted / 服务已重启${none}"
-                    echo ""
-                    echo -e "${yellow}Your proxy now has NO domain restrictions.${none}"
-                    echo -e "${yellow}您的代理现在没有任何域名限制。${none}"
-                    return 0
-                else
-                    echo -e "${yellow}Cancelled / 已取消${none}"
-                fi
-                ;;
-            k|K|"")
-                echo ""
-                echo -e "${green}✓ Keeping current settings / 保持当前设置${none}"
-                return 0
-                ;;
-            *)
-                echo -e "${red}Invalid option / 无效选项${none}"
-                ;;
-        esac
-    done
 }
 
-# Call interactive configuration
-whitelist_interactive_config
+#=== 12. 输出信息 ============================================================
+showInfo() {
+    IP=$(curl -s4m5 https://ip.gs || echo "unknown")
 
-echo ""
-echo -e "${green}========================================${none}"
-echo -e "${green}  Setup Complete / 安装完成${none}"
-echo -e "${green}========================================${none}"
-echo ""
+    # 生成VMess链接
+    raw="{\"v\":\"2\",\"ps\":\"AI-Xray-${DOMAIN}\",\"add\":\"${IP}\",\"port\":\"443\",\"id\":\"${UUID}\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${DOMAIN}\",\"path\":\"${WS_PATH}\",\"tls\":\"tls\"}"
+    link=$(echo -n "$raw" | base64 -w 0)
+    link="vmess://${link}"
+
+    echo ""; echo -e "${GREEN}========================================${PLAIN}"
+    echo -e "${GREEN}AI-Xray 安装完成 v2.0${PLAIN}"
+    echo -e "${GREEN}========================================${PLAIN}"
+    echo ""
+    echo -e "  域名：      ${RED}${DOMAIN}${PLAIN}"
+    echo -e "  端口：      ${RED}443${PLAIN}"
+    echo -e "  UUID：      ${RED}${UUID}${PLAIN}"
+    echo -e "  协议：      ${RED}VMESS + WS + TLS${PLAIN}"
+    echo -e "  WS路径：    ${RED}${WS_PATH}${PLAIN}"
+    echo -e "  伪装站：    ${RED}https://${DOMAIN}${PLAIN}"
+    echo ""
+    echo -e "${BLUE}  VMess链接：${PLAIN}"
+    echo -e "${RED}  ${link}${PLAIN}"
+    echo ""
+    echo -e "  客户端教程：${BLUE}https://ssr.dedyn.io${PLAIN}"
+    echo ""
+    echo -e "  可选：Cloudflare开启橙色云朵(Proxied)"
+    echo -e "        SSL模式选Full(strict)"
+    echo ""
+    echo -e "  管理命令：${BLUE}ai-xray${PLAIN}"
+    echo -e "${GREEN}========================================${PLAIN}"
+}
+
+#=== 13. 安装管理命令 ========================================================
+installManager() {
+    cat > /usr/local/bin/ai-xray << 'MGRSCRIPT'
+#!/bin/bash
+INFO_FILE="/etc/ai-xray/info.json"
+SITE_DIR="/usr/share/nginx/ai-xray"
+
+RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; BLUE="\033[36m"; PLAIN="\033[0m"
+colorEcho() { echo -e "${1}${@:2}${PLAIN}"; }
+
+show_menu() {
+    echo ""; echo -e "${BLUE}AI-Xray 管理菜单 v2.0${PLAIN}"; echo ""
+    echo "  1) 查看连接信息"
+    echo "  2) 重新生成伪装站"
+    echo "  3) 更新Xray内核"
+    echo "  4) 重启服务"
+    echo "  5) 查看日志"
+    echo "  6) 查看状态"
+    echo "  7) 卸载"
+    echo "  0) 退出"
+    echo ""
+    read -p "请选择[0-7]: " choice
+
+    case $choice in
+        1) show_info ;;
+        2) regenerate_site ;;
+        3) update_xray ;;
+        4) restart_services ;;
+        5) view_logs ;;
+        6) show_status ;;
+        7) uninstall ;;
+        0) exit 0 ;;
+        *) colorEcho $RED "无效选项" && show_menu ;;
+    esac
+}
+
+show_info() {
+    if [[ -f "$INFO_FILE" ]]; then
+        echo ""; colorEcho $BLUE "连接信息："
+        DOMAIN=$(jq -r .domain "$INFO_FILE")
+        UUID=$(jq -r .uuid "$INFO_FILE")
+        WSPATH=$(jq -r .wsPath "$INFO_FILE")
+        IP=$(jq -r .ip "$INFO_FILE")
+        raw="{\"v\":\"2\",\"ps\":\"AI-Xray-${DOMAIN}\",\"add\":\"${IP}\",\"port\":\"443\",\"id\":\"${UUID}\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${DOMAIN}\",\"path\":\"${WSPATH}\",\"tls\":\"tls\"}"
+        link=$(echo -n "$raw" | base64 -w 0)
+        echo -e "  域名:   ${GREEN}${DOMAIN}${PLAIN}"
+        echo -e "  端口:   ${GREEN}443${PLAIN}"
+        echo -e "  UUID:   ${GREEN}${UUID}${PLAIN}"
+        echo -e "  WS路径: ${GREEN}${WSPATH}${PLAIN}"
+        echo -e "  VMess:  ${GREEN}vmess://${link}${PLAIN}"
+    else
+        colorEcho $RED "未安装AI-Xray"
+    fi
+}
+
+regenerate_site() {
+    colorEcho $BLUE "正在重新生成伪装站..."
+    SITE_HTML=$(curl -fsSL --max-time 30 "https://aixray.fluxrouter.net/generate?type=1&lang=en" 2>/dev/null)
+    if [[ $? -eq 0 ]] && [[ ${#SITE_HTML} -gt 500 ]]; then
+        echo "$SITE_HTML" > ${SITE_DIR}/index.html
+        colorEcho $GREEN "✓ 伪装站已刷新"
+    else
+        colorEcho $RED "✗ 生成失败，稍后重试"
+    fi
+}
+
+update_xray() {
+    colorEcho $BLUE "检查Xray更新..."
+    bash -c "$(curl -sL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --version latest 2>/dev/null
+    systemctl restart xray
+    colorEcho $GREEN "✓ Xray已更新"
+}
+
+restart_services() {
+    systemctl restart xray; systemctl restart nginx
+    colorEcho $GREEN "✓ 服务已重启"
+}
+
+view_logs() {
+    echo ""; colorEcho $BLUE "Xray日志（最近30行）："
+    journalctl -u xray --no-pager -n 30
+    echo ""; colorEcho $BLUE "Nginx错误日志（最近10行）："
+    tail -10 /var/log/nginx/error.log 2>/dev/null || echo "无日志"
+}
+
+show_status() {
+    echo ""; echo -n "Xray: "
+    systemctl is-active --quiet xray && echo -e "${GREEN}运行中${PLAIN}" || echo -e "${RED}未运行${PLAIN}"
+    echo -n "Nginx: "
+    systemctl is-active --quiet nginx && echo -e "${GREEN}运行中${PLAIN}" || echo -e "${RED}未运行${PLAIN}"
+    echo -n "443端口: "
+    ss -tlnp | grep -q ':443 ' && echo -e "${GREEN}监听中${PLAIN}" || echo -e "${RED}未监听${PLAIN}"
+}
+
+uninstall() {
+    echo ""; colorEcho $YELLOW "确认卸载AI-Xray? [y/N]"
+    read -p "" confirm
+    [[ "$confirm" != "y" ]] && [[ "$confirm" != "Y" ]] && return
+
+    systemctl stop xray 2>/dev/null; systemctl stop nginx 2>/dev/null
+    systemctl disable xray 2>/dev/null; systemctl disable nginx 2>/dev/null
+    rm -f /usr/local/bin/xray /usr/local/etc/xray/config.json
+    rm -f /etc/nginx/conf.d/ai-xray.conf /etc/nginx/sites-available/ai-xray /etc/nginx/sites-enabled/ai-xray
+    rm -rf /usr/share/nginx/ai-xray /etc/ai-xray
+    rm -f /usr/local/bin/ai-xray
+    colorEcho $GREEN "✓ 卸载完成"
+}
+
+show_menu
+MGRSCRIPT
+    chmod +x /usr/local/bin/ai-xray
+    colorEcho $GREEN "✓ 管理命令已安装: ai-xray"
+}
+
+#=== 主流程 ==================================================================
+main() {
+    checkSystem
+    getData
+    vps_check
+    installDeps
+    installXray
+    installCert
+    generateConfig
+    generateSite
+    enableBBR
+    startServices
+    saveInfo
+    installManager
+    showInfo
+}
+
+main
