@@ -82,7 +82,7 @@ installDeps() {
         # CentOS 7需要EPEL来获取nginx
         yum install -y epel-release 2>/dev/null || true
     fi
-    for pkg in curl wget unzip jq openssl socat nginx; do
+    for pkg in curl wget unzip jq openssl socat nginx tar; do
         $CMD_INSTALL $pkg 2>/dev/null
     done
     # CentOS 7 nginx特殊处理：如果EPEL也没有，用nginx官方源
