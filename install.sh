@@ -28,6 +28,11 @@ checkSystem() {
     elif which yum &>/dev/null; then
         PMT="yum"; CMD_INSTALL="yum install -y"; CMD_REMOVE="yum remove -y"
         CMD_UPGRADE="yum update -y"
+        # CentOS/RHEL: 关防火墙和SELinux
+        systemctl stop firewalld 2>/dev/null || true
+        systemctl disable firewalld 2>/dev/null || true
+        setenforce 0 2>/dev/null || true
+        sed -i "s/^SELINUX=enforcing/SELINUX=disabled/" /etc/selinux/config 2>/dev/null || true
     else
         colorEcho $RED "不受支持的系统"; exit 1
     fi
@@ -62,9 +67,9 @@ vps_check() {
     curl -sI --max-time 5 "https://api.anthropic.com" >/dev/null 2>&1 && AI_OK=1
     curl -sI --max-time 5 "https://generativelanguage.googleapis.com" >/dev/null 2>&1 && AI_OK=1
     [[ $AI_OK -eq 1 ]] && colorEcho $GREEN "✓ AI服务连通" || colorEcho $RED "✗ AI服务不通"
-    LATENCY=$(ping -c 3 google.com 2>/dev/null | tail -1 | awk -F'/' '{print $5}')
+    LATENCY=$(ping -c 3 google.com 2>/dev/null | tail -1 | awk -F'/' '{print $5}') || true
     [[ -n "$LATENCY" ]] && colorEcho $GREEN "✓ 延迟: ${LATENCY}ms" || colorEcho $YELLOW "△ 无法测延迟"
-    BBR=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | grep bbr)
+    BBR=$(sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | grep bbr || true)
     [[ -n "$BBR" ]] && colorEcho $GREEN "✓ BBR已开启" || colorEcho $YELLOW "△ BBR未开启，将自动开启"
 }
 
@@ -73,11 +78,26 @@ installDeps() {
     echo ""; colorEcho $BLUE "安装依赖..."
     if [[ "$PMT" == "apt" ]]; then
         apt update -qq
+    elif [[ "$PMT" == "yum" ]]; then
+        # CentOS 7需要EPEL来获取nginx
+        yum install -y epel-release 2>/dev/null || true
     fi
     for pkg in curl wget unzip jq openssl socat nginx; do
         $CMD_INSTALL $pkg 2>/dev/null
     done
-    systemctl enable nginx 2>/dev/null
+    # CentOS 7 nginx特殊处理：如果EPEL也没有，用nginx官方源
+    if ! which nginx &>/dev/null && [[ "$PMT" == "yum" ]]; then
+        cat > /etc/yum.repos.d/nginx.repo << 'NGINXREPO'
+[nginx-stable]
+name=nginx stable repo
+baseurl=http://nginx.org/packages/centos/$releasever/$basearch/
+gpgcheck=1
+enabled=1
+gpgkey=https://nginx.org/keys/nginx_signing.key
+NGINXREPO
+        $CMD_INSTALL nginx 2>/dev/null
+    fi
+    systemctl enable nginx 2>/dev/null || true
     colorEcho $GREEN "✓ 依赖安装完成"
 }
 
@@ -85,7 +105,7 @@ installDeps() {
 installXray() {
     echo ""; colorEcho $BLUE "安装Xray..."
     bash -c "$(curl -sL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install 2>/dev/null
-    systemctl enable xray 2>/dev/null
+    systemctl enable xray 2>/dev/null || true
     colorEcho $GREEN "✓ Xray安装完成"
 }
 
@@ -96,7 +116,7 @@ installCert() {
     systemctl stop xray 2>/dev/null || true
 
     # 检查端口
-    res=$(ss -ntlp | grep -E ':80 |:443 ' 2>/dev/null)
+    res=$(ss -ntlp 2>/dev/null | grep -E ':80 |:443 ' || true)
     if [[ -n "$res" ]]; then
         colorEcho $RED "80/443端口被占用，请先释放"
         echo "$res"; exit 1
@@ -105,16 +125,16 @@ installCert() {
     $CMD_INSTALL socat openssl 2>/dev/null
     if [[ "$PMT" == "yum" ]]; then
         $CMD_INSTALL cronie 2>/dev/null
-        systemctl start crond 2>/dev/null; systemctl enable crond 2>/dev/null
+        systemctl start crond 2>/dev/null || true; systemctl enable crond 2>/dev/null || true
     else
         $CMD_INSTALL cron 2>/dev/null
-        systemctl start cron 2>/dev/null; systemctl enable cron 2>/dev/null
+        systemctl start cron 2>/dev/null || true; systemctl enable cron 2>/dev/null || true
     fi
 
     curl -sL https://get.acme.sh | sh
     source ~/.bashrc
-    ~/.acme.sh/acme.sh --upgrade --auto-upgrade 2>/dev/null
-    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+    ~/.acme.sh/acme.sh --upgrade --auto-upgrade 2>/dev/null || true
+    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt 2>/dev/null || true
     ~/.acme.sh/acme.sh --issue -d ${DOMAIN} --keylength ec-256 --standalone --force
 
     mkdir -p /root/.acme.sh/${DOMAIN}_ecc
@@ -221,8 +241,8 @@ generateSite() {
 
     # Level 1: AI实时生成
     echo ""; colorEcho $BLUE "正在生成专属伪装站..."
-    SITE_HTML=$(curl -fsSL --max-time 30 "https://aixray.fluxrouter.net/generate?type=${SITE_TYPE}&lang=en" 2>/dev/null)
-    if [[ $? -eq 0 ]] && [[ ${#SITE_HTML} -gt 500 ]]; then
+    SITE_HTML=$(curl -fsSL --max-time 30 "https://aixray.fluxrouter.net/generate?type=${SITE_TYPE}&lang=en" 2>/dev/null) || true
+    if [[ ${#SITE_HTML} -gt 500 ]]; then
         echo "$SITE_HTML" > ${SITE_DIR}/index.html
         colorEcho $GREEN "✓ AI专属伪装站已生成"
         return 0
@@ -231,16 +251,16 @@ generateSite() {
     # Level 2: 公开模板池 + 本地渲染
     colorEcho $YELLOW "AI生成临时不可用，使用本地模板..."
     TEMPLATES_URL="https://raw.githubusercontent.com/ScientificInternet/ai-xray-sites/main"
-    MANIFEST=$(curl -fsSL --max-time 10 "${TEMPLATES_URL}/manifest.json" 2>/dev/null)
-    if [[ $? -eq 0 ]]; then
-        TEMPLATE_COUNT=$(echo "$MANIFEST" | jq '.templates | length' 2>/dev/null)
+    MANIFEST=$(curl -fsSL --max-time 10 "${TEMPLATES_URL}/manifest.json" 2>/dev/null) || true
+    if [[ -n "$MANIFEST" ]]; then
+        TEMPLATE_COUNT=$(echo "$MANIFEST" | jq '.templates | length' 2>/dev/null) || true
         if [[ "$TEMPLATE_COUNT" -gt 0 ]]; then
             RANDOM_INDEX=$((RANDOM % TEMPLATE_COUNT))
-            TEMPLATE_NAME=$(echo "$MANIFEST" | jq -r ".templates[$RANDOM_INDEX].name")
-            TEMPLATE_HASH=$(echo "$MANIFEST" | jq -r ".templates[$RANDOM_INDEX].sha256")
+            TEMPLATE_NAME=$(echo "$MANIFEST" | jq -r ".templates[$RANDOM_INDEX].name") || true
+            TEMPLATE_HASH=$(echo "$MANIFEST" | jq -r ".templates[$RANDOM_INDEX].sha256") || true
             curl -fsSL --max-time 15 "${TEMPLATES_URL}/templates/${TEMPLATE_NAME}.tar.gz" -o /tmp/template.tar.gz
             if [[ -f /tmp/template.tar.gz ]]; then
-                ACTUAL_HASH=$(sha256sum /tmp/template.tar.gz | cut -d' ' -f1)
+                ACTUAL_HASH=$(sha256sum /tmp/template.tar.gz | cut -d' ' -f1) || true
                 if [[ "$ACTUAL_HASH" == "$TEMPLATE_HASH" ]]; then
                     mkdir -p /tmp/ai-xray-template
                     tar xzf /tmp/template.tar.gz -C /tmp/ai-xray-template/
@@ -267,16 +287,23 @@ FALLBACK
 #=== 9. 开启BBR ==============================================================
 enableBBR() {
     echo ""; colorEcho $BLUE "开启BBR..."
-    echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-    sysctl -p >/dev/null 2>&1
-    colorEcho $GREEN "✓ BBR已开启"
+    # 尝试加载BBR模块（部分旧内核不支持）
+    modprobe tcp_bbr 2>/dev/null || true
+    # 检查BBR是否可用
+    if sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | grep -q bbr; then
+        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+        sysctl -p >/dev/null 2>&1 || true
+        colorEcho $GREEN "✓ BBR已开启"
+    else
+        colorEcho $YELLOW "△ 内核不支持BBR，跳过"
+    fi
 }
 
 #=== 10. 启动服务 ============================================================
 startServices() {
     echo ""; colorEcho $BLUE "启动服务..."
-    systemctl restart xray; systemctl restart nginx
+    systemctl restart xray 2>/dev/null || true; systemctl restart nginx 2>/dev/null || true
     sleep 2
     if systemctl is-active --quiet xray && systemctl is-active --quiet nginx; then
         colorEcho $GREEN "✓ Xray + Nginx 运行中"
