@@ -182,7 +182,22 @@ generateConfig() {
   "outbounds": [
     {"protocol": "freedom", "tag": "direct"},
     {"protocol": "blackhole", "tag": "blocked"}
-  ]
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "domain": ["domain:google.com","domain:facebook.com","domain:tiktok.com","domain:x.com","domain:pinterest.com","domain:openai.com","domain:claude.ai"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "port": "0-65535",
+        "outboundTag": "blocked"
+      }
+    ]
+  }
 }
 XEOF
 
@@ -280,6 +295,95 @@ FALLBACK
     colorEcho $GREEN "✓ 临时默认站点已启用"
 }
 
+#=== 8.5 白名单 + TOS ========================================================
+setupWhitelist() {
+    # 写入白名单文件
+    cat > /usr/local/etc/xray/whitelist.txt << 'WLIST'
+google.com
+facebook.com
+tiktok.com
+x.com
+pinterest.com
+openai.com
+claude.ai
+WLIST
+
+    # 写入TOS
+    cat > /usr/local/etc/xray/TOS.txt << 'TOSEOF'
+TERMS OF SERVICE — AI-Xray Cross-border Accelerator
+
+AI-Xray is designed as a network accelerator for cross-border
+e-commerce and AI productivity platforms. The default configuration
+restricts access to authorized business platforms only.
+
+By removing or modifying the default whitelist, you acknowledge:
+
+1. You are solely responsible for all network traffic routed
+   through this software after modification.
+2. You will comply with all applicable local and international
+   laws and regulations.
+3. The developers and contributors of AI-Xray bear no liability
+   for any use beyond the original cross-border business purpose.
+4. This software is provided "AS IS" without warranty of any kind.
+
+If you do not agree, do not modify the whitelist.
+TOSEOF
+
+    colorEcho $GREEN "✓ 白名单 + TOS 已就绪"
+}
+
+#=== 8.6 重建routing ==========================================================
+rebuild_routing() {
+    python3 << 'PYEOF'
+import json
+
+config_path = "/usr/local/etc/xray/config.json"
+whitelist_path = "/usr/local/etc/xray/whitelist.txt"
+
+with open(config_path, "r") as f:
+    config = json.load(f)
+
+try:
+    with open(whitelist_path, "r") as f:
+        domains = [line.strip() for line in f if line.strip()]
+except FileNotFoundError:
+    domains = []
+
+if domains:
+    config["routing"] = {
+        "domainStrategy": "AsIs",
+        "rules": [
+            {
+                "type": "field",
+                "domain": [f"domain:{d}" for d in domains],
+                "outboundTag": "direct"
+            },
+            {
+                "type": "field",
+                "port": "0-65535",
+                "outboundTag": "blocked"
+            }
+        ]
+    }
+else:
+    config["routing"] = {
+        "domainStrategy": "AsIs",
+        "rules": [
+            {
+                "type": "field",
+                "port": "0-65535",
+                "outboundTag": "direct"
+            }
+        ]
+    }
+
+with open(config_path, "w") as f:
+    json.dump(config, f, indent=2)
+PYEOF
+
+    systemctl restart xray 2>/dev/null || killall -SIGHUP xray 2>/dev/null
+}
+
 #=== 9. 开启BBR ==============================================================
 enableBBR() {
     echo ""; colorEcho $BLUE "开启BBR..."
@@ -364,6 +468,9 @@ showInfo() {
     echo -e "        SSL模式选Full(strict)"
     echo ""
     echo -e "  管理命令：${BLUE}ai-xray${PLAIN}"
+    echo ""
+    echo -e "  ${YELLOW}默认已启用跨境平台白名单（7个域名）${PLAIN}"
+    echo -e "  ${YELLOW}输入 ai-xray 进入管理菜单修改白名单${PLAIN}"
     echo -e "${GREEN}========================================${PLAIN}"
 }
 
@@ -385,10 +492,11 @@ show_menu() {
     echo "  4) 重启服务"
     echo "  5) 查看日志"
     echo "  6) 查看状态"
-    echo "  7) 卸载"
+    echo "  7) 白名单管理"
+    echo "  8) 卸载"
     echo "  0) 退出"
     echo ""
-    read -p "请选择[0-7]: " choice
+    read -p "请选择[0-8]: " choice
 
     case $choice in
         1) show_info ;;
@@ -397,7 +505,8 @@ show_menu() {
         4) restart_services ;;
         5) view_logs ;;
         6) show_status ;;
-        7) uninstall ;;
+        7) whitelist_menu ;;
+        8) uninstall ;;
         0) exit 0 ;;
         *) colorEcho $RED "无效选项" && show_menu ;;
     esac
@@ -476,6 +585,128 @@ uninstall() {
     colorEcho $GREEN "✓ 卸载完成"
 }
 
+rebuild_routing() {
+    python3 << 'PYEOF'
+import json
+
+config_path = "/usr/local/etc/xray/config.json"
+whitelist_path = "/usr/local/etc/xray/whitelist.txt"
+
+with open(config_path, "r") as f:
+    config = json.load(f)
+
+try:
+    with open(whitelist_path, "r") as f:
+        domains = [line.strip() for line in f if line.strip()]
+except FileNotFoundError:
+    domains = []
+
+if domains:
+    config["routing"] = {
+        "domainStrategy": "AsIs",
+        "rules": [
+            {
+                "type": "field",
+                "domain": [f"domain:{d}" for d in domains],
+                "outboundTag": "direct"
+            },
+            {
+                "type": "field",
+                "port": "0-65535",
+                "outboundTag": "blocked"
+            }
+        ]
+    }
+else:
+    config["routing"] = {
+        "domainStrategy": "AsIs",
+        "rules": [
+            {
+                "type": "field",
+                "port": "0-65535",
+                "outboundTag": "direct"
+            }
+        ]
+    }
+
+with open(config_path, "w") as f:
+    json.dump(config, f, indent=2)
+PYEOF
+
+    systemctl restart xray 2>/dev/null || killall -SIGHUP xray 2>/dev/null
+}
+
+whitelist_menu() {
+    WHITELIST="/usr/local/etc/xray/whitelist.txt"
+    DEFAULT_DOMAINS="google.com facebook.com tiktok.com x.com pinterest.com openai.com claude.ai"
+
+    while true; do
+        echo ""; echo -e "${BLUE}白名单管理${PLAIN}"; echo ""
+        echo "当前白名单："
+        if [[ -f "$WHITELIST" ]] && [[ -s "$WHITELIST" ]]; then
+            nl -w2 -s". " "$WHITELIST"
+        else
+            colorEcho $YELLOW "  (空 — 不限制流量)"
+        fi
+        echo ""
+        echo "  a. 添加域名"
+        echo "  d. 删除单个域名（输入编号）"
+        echo "  r. 全部删除（解锁全部流量）"
+        echo "  s. 恢复默认白名单"
+        echo "  0. 返回主菜单"
+        echo ""
+        read -p "请选择: " wl_choice
+
+        case $wl_choice in
+            a)
+                read -p "请输入域名（例如 shopify.com）: " new_domain
+                [[ -z "$new_domain" ]] && continue
+                echo "$new_domain" >> "$WHITELIST"
+                colorEcho $GREEN "✓ 已添加 ${new_domain}"
+                rebuild_routing
+                ;;
+            d)
+                read -p "请输入要删除的编号: " del_num
+                domain=$(sed -n "${del_num}p" "$WHITELIST" 2>/dev/null)
+                [[ -z "$domain" ]] && { colorEcho $RED "无效编号"; continue; }
+                echo ""; colorEcho $YELLOW "即将删除：${domain}"; echo ""
+                cat /usr/local/etc/xray/TOS.txt 2>/dev/null
+                echo ""; read -p "输入 YES 确认删除，其他任意键取消: " confirm
+                if [[ "$confirm" == "YES" ]]; then
+                    sed -i "${del_num}d" "$WHITELIST"
+                    colorEcho $GREEN "✓ 已删除"
+                    rebuild_routing
+                else
+                    colorEcho $YELLOW "已取消"
+                fi
+                ;;
+            r)
+                echo ""; colorEcho $RED "即将删除所有白名单条目。"
+                echo "删除后 AI-Xray 将变为不限制流量的通用加速器。"; echo ""
+                cat /usr/local/etc/xray/TOS.txt 2>/dev/null
+                echo ""; read -p "输入 YES 确认删除所有白名单，其他任意键取消: " confirm
+                if [[ "$confirm" == "YES" ]]; then
+                    > "$WHITELIST"
+                    colorEcho $GREEN "✓ 已清空白名单"
+                    rebuild_routing
+                else
+                    colorEcho $YELLOW "已取消"
+                fi
+                ;;
+            s)
+                read -p "将恢复为出厂默认白名单（7个域名），确认？(y/n) " confirm
+                if [[ "$confirm" == "y" ]] || [[ "$confirm" == "Y" ]]; then
+                    echo "$DEFAULT_DOMAINS" | tr ' ' '\n' > "$WHITELIST"
+                    colorEcho $GREEN "✓ 已恢复默认白名单"
+                    rebuild_routing
+                fi
+                ;;
+            0) return 0 ;;
+            *) colorEcho $RED "无效选项" ;;
+        esac
+    done
+}
+
 show_menu
 MGRSCRIPT
     chmod +x /usr/local/bin/ai-xray
@@ -494,6 +725,7 @@ main() {
     generateSite
     enableBBR
     startServices
+    setupWhitelist
     saveInfo
     installManager
     showInfo
