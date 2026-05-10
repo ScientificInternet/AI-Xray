@@ -1,8 +1,8 @@
 # AI-Xray
 
-跨境电商加速器 · Cross-border E-commerce Accelerator
+跨境电商 & AI 生产力加速器
 
-VMESS + WebSocket + TLS + Cloudflare CDN + AI伪装站 · 一行命令，全自动部署
+为跨境从业者打造的网络加速工具。出厂预置 Google Ads、Meta、TikTok、ChatGPT、Claude 等平台白名单，一行命令部署，开箱即用。
 
 ## 一行安装
 
@@ -14,11 +14,29 @@ bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/m
 
 ## 为什么选AI-Xray
 
-**只做一件事，做到极致。** 不搞VLESS/Trojan/Reality/gRPC/KCP多协议大杂烩。VMESS + WS + TLS是唯一经过CDN实战验证的稳定组合，没有之一。
+**出厂即合规。** 默认白名单锁定跨境电商和AI生产力平台，不是通用代理。你的服务器就是一台专用的工作加速器。
+
+**只做一件事，做到极致。** 不搞多协议大杂烩。VMESS + WS + TLS 是唯一经过CDN实战验证的稳定组合，没有之一。
 
 **AI生成专属伪装站。** 每台服务器的伪装站都不一样，三层fallback保证100%生成成功。你的服务器看起来就是一个正常的技术文档网站。
 
 **10个Linux发行版测试全绿。** 不是"理论上支持"，是每一个都跑过完整安装流程。
+
+## 默认白名单
+
+安装完成后，以下平台默认可访问：
+
+| 平台 | 域名 | 用途 |
+|------|------|------|
+| Google | google.com | Ads投放、Analytics、Search Console |
+| Meta | facebook.com | Business Suite、广告投放 |
+| TikTok | tiktok.com | Ads Manager、店铺管理 |
+| X (Twitter) | x.com | 广告投放、社媒运营 |
+| Pinterest | pinterest.com | 广告投放、选品 |
+| OpenAI | openai.com | ChatGPT |
+| Anthropic | claude.ai | Claude |
+
+白名单可通过管理菜单自定义。
 
 ## 系统兼容性
 
@@ -60,7 +78,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/ScientificInternet/AI-Xray/m
 ai-xray
 ```
 
-查看连接信息 / 重新生成伪装站 / 更新Xray内核 / 重启服务 / 查看日志 / 查看状态 / 卸载。一个命令管一切。
+查看连接信息 / 重新生成伪装站 / 更新Xray内核 / 重启服务 / 查看日志 / 查看状态 / 白名单管理 / 卸载。一个命令管一切。
 
 ## 推荐VPS
 
