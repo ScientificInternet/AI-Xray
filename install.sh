@@ -62,11 +62,11 @@ getData() {
 #=== 3. VPS质量检测 ===========================================================
 vps_check() {
     echo ""; colorEcho $BLUE "VPS质量检测..."
-    AI_OK=0
-    curl -sI --max-time 5 "https://api.openai.com" >/dev/null 2>&1 && AI_OK=1
-    curl -sI --max-time 5 "https://api.anthropic.com" >/dev/null 2>&1 && AI_OK=1
-    curl -sI --max-time 5 "https://generativelanguage.googleapis.com" >/dev/null 2>&1 && AI_OK=1
-    [[ $AI_OK -eq 1 ]] && colorEcho $GREEN "✓ AI服务连通" || colorEcho $RED "✗ AI服务不通"
+    DNS_OK=0; NET_OK=0
+    getent ahosts "$DOMAIN" >/dev/null 2>&1 && DNS_OK=1
+    curl -fsS --max-time 5 https://1.1.1.1 >/dev/null 2>&1 && NET_OK=1
+    [[ $DNS_OK -eq 1 ]] && colorEcho $GREEN "✓ DNS解析正常" || colorEcho $RED "✗ DNS解析失败"
+    [[ $NET_OK -eq 1 ]] && colorEcho $GREEN "✓ 出站网络正常" || colorEcho $RED "✗ 出站网络不通"
     LATENCY=$(ping -c 3 google.com 2>/dev/null | tail -1 | awk -F'/' '{print $5}') || true
     [[ -n "$LATENCY" ]] && colorEcho $GREEN "✓ 延迟: ${LATENCY}ms" || colorEcho $YELLOW "△ 无法测延迟"
     BBR=$(sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | grep bbr || true)
@@ -83,16 +83,19 @@ installDeps() {
         yum install -y epel-release 2>/dev/null || true
     fi
     for pkg in curl wget unzip jq openssl socat nginx tar; do
-        $CMD_INSTALL $pkg 2>/dev/null
+        if ! $CMD_INSTALL "$pkg"; then
+            colorEcho $RED "依赖安装失败: $pkg"; exit 1
+        fi
     done
     # CentOS 7 nginx特殊处理：如果EPEL也没有，用nginx官方源
     if ! which nginx &>/dev/null && [[ "$PMT" == "yum" ]]; then
         cat > /etc/yum.repos.d/nginx.repo << 'NGINXREPO'
 [nginx-stable]
 name=nginx stable repo
-baseurl=http://nginx.org/packages/centos/$releasever/$basearch/
+baseurl=https://nginx.org/packages/centos/$releasever/$basearch/
 gpgcheck=1
 enabled=1
+repo_gpgcheck=1
 gpgkey=https://nginx.org/keys/nginx_signing.key
 NGINXREPO
         $CMD_INSTALL nginx 2>/dev/null
@@ -104,7 +107,15 @@ NGINXREPO
 #=== 5. 安装Xray =============================================================
 installXray() {
     echo ""; colorEcho $BLUE "安装Xray..."
-    bash -c "$(curl -sL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install 2>/dev/null
+    XRAY_URL="https://raw.githubusercontent.com/XTLS/Xray-install/e741a4f56d368afbb9e5be3361b40c4552d3710d/install-release.sh"
+    XRAY_SHA256="7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555"
+    tmp_xray=$(mktemp)
+    curl -fsSL "$XRAY_URL" -o "$tmp_xray"
+    echo "${XRAY_SHA256}  ${tmp_xray}" | sha256sum -c - || {
+        colorEcho $RED "Xray安装脚本校验失败"; rm -f "$tmp_xray"; exit 1
+    }
+    bash "$tmp_xray" install
+    rm -f "$tmp_xray"
     systemctl enable xray 2>/dev/null || true
     colorEcho $GREEN "✓ Xray安装完成"
 }
@@ -112,15 +123,16 @@ installXray() {
 #=== 6. 申请证书 =============================================================
 installCert() {
     echo ""; colorEcho $BLUE "申请证书..."
+    # 先检查端口占用
+    res=$(ss -ntlp 2>/dev/null | grep -E ':(80|443)\s' || true)
+    if [[ -n "$res" ]]; then
+        colorEcho $RED "80/443端口已被占用："
+        echo "$res"
+        colorEcho $YELLOW "请释放端口后重试"; exit 1
+    fi
     systemctl stop nginx 2>/dev/null || true
     systemctl stop xray 2>/dev/null || true
-
-    # 检查端口
-    res=$(ss -ntlp 2>/dev/null | grep -E ':80 |:443 ' || true)
-    if [[ -n "$res" ]]; then
-        colorEcho $RED "80/443端口被占用，请先释放"
-        echo "$res"; exit 1
-    fi
+    sleep 2
 
     $CMD_INSTALL socat openssl 2>/dev/null
     if [[ "$PMT" == "yum" ]]; then
@@ -131,16 +143,23 @@ installCert() {
         systemctl start cron 2>/dev/null || true; systemctl enable cron 2>/dev/null || true
     fi
 
-    curl -sL https://get.acme.sh | sh
-    source ~/.bashrc
-    ~/.acme.sh/acme.sh --upgrade --auto-upgrade 2>/dev/null || true
-    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt 2>/dev/null || true
-    ~/.acme.sh/acme.sh --issue -d ${DOMAIN} --keylength ec-256 --standalone --force
+    ACME_URL="https://raw.githubusercontent.com/acmesh-official/acme.sh/3.1.3/acme.sh"
+    ACME_SHA256="adc76e222a4cde93d6390f41618df7796549ed2b6057239376df08e235ae4574"
+    tmp_acme=$(mktemp)
+    curl -fsSL "$ACME_URL" -o "$tmp_acme"
+    echo "${ACME_SHA256}  ${tmp_acme}" | sha256sum -c - || {
+        colorEcho $RED "acme.sh校验失败"; rm -f "$tmp_acme"; exit 1
+    }
+    install -m 0755 "$tmp_acme" /usr/local/bin/acme.sh
+    rm -f "$tmp_acme"
+    /usr/local/bin/acme.sh --set-default-ca --server letsencrypt 2>/dev/null || true
+    /usr/local/bin/acme.sh --issue -d ${DOMAIN} --keylength ec-256 --standalone --force
 
     mkdir -p /root/.acme.sh/${DOMAIN}_ecc
-    ~/.acme.sh/acme.sh --install-cert -d ${DOMAIN} --ecc \
+    /usr/local/bin/acme.sh --install-cert -d ${DOMAIN} --ecc \
         --key-file /root/.acme.sh/${DOMAIN}_ecc/${DOMAIN}.key \
-        --fullchain-file /root/.acme.sh/${DOMAIN}_ecc/fullchain.cer
+        --fullchain-file /root/.acme.sh/${DOMAIN}_ecc/fullchain.cer \
+        --reloadcmd "systemctl reload nginx"
 
     [[ -f /root/.acme.sh/${DOMAIN}_ecc/fullchain.cer ]] || {
         colorEcho $RED "证书申请失败"; exit 1
@@ -152,7 +171,10 @@ installCert() {
 generateConfig() {
     echo ""; colorEcho $BLUE "生成配置..."
 
-    XRAY_PORT=$((10000 + RANDOM % 55535))
+    XRAY_PORT=$(shuf -i 10000-65535 -n 1)
+    while ss -lnt 2>/dev/null | awk '{print $4}' | grep -q ":${XRAY_PORT}$"; do
+        XRAY_PORT=$(shuf -i 10000-65535 -n 1)
+    done
     UUID=$(cat /proc/sys/kernel/random/uuid)
     len=$(shuf -i5-12 -n1)
     ws=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w $len | head -n 1)
@@ -253,7 +275,7 @@ generateSite() {
     # Level 1: AI实时生成
     echo ""; colorEcho $BLUE "正在生成专属伪装站..."
     SITE_HTML=$(curl -fsSL --max-time 30 "https://aixray.fluxrouter.net/generate?type=${SITE_TYPE}&lang=en" 2>/dev/null) || true
-    if [[ ${#SITE_HTML} -gt 500 ]]; then
+    if [[ ${#SITE_HTML} -gt 500 ]] && echo "$SITE_HTML" | grep -qi "<html"; then
         echo "$SITE_HTML" > ${SITE_DIR}/index.html
         colorEcho $GREEN "✓ AI专属伪装站已生成"
         return 0
@@ -274,25 +296,31 @@ generateSite() {
                 ACTUAL_HASH=$(sha256sum /tmp/template.tar.gz | cut -d' ' -f1) || true
                 if [[ "$ACTUAL_HASH" == "$TEMPLATE_HASH" ]]; then
                     mkdir -p /tmp/ai-xray-template
-                    tar xzf /tmp/template.tar.gz -C /tmp/ai-xray-template/
-                    SEED="$(hostname)-$(date +%s)-${RANDOM}"
-                    find /tmp/ai-xray-template -name '*.html' -exec sed -i "s/{{SITE_TITLE}}/I-Lang Protocol v3.${RANDOM:0:1}.${RANDOM:0:2}/g; s/{{BUILD_ID}}/$(echo $SEED | md5sum | cut -c1-8)/g; s/{{YEAR}}/$(date +%Y)/g" {} \;
-                    cp -r /tmp/ai-xray-template/* ${SITE_DIR}/
-                    rm -rf /tmp/template.tar.gz /tmp/ai-xray-template/
-                    colorEcho $GREEN "✓ 本地模板伪装站已生成"
-                    return 0
+                    if tar xzf /tmp/template.tar.gz -C /tmp/ai-xray-template/ 2>/dev/null; then
+                        SEED="$(hostname)-$(date +%s)-${RANDOM}"
+                        find /tmp/ai-xray-template -name '*.html' -exec sed -i "s/{{SITE_TITLE}}/Documentation Portal/g; s/{{BUILD_ID}}/$(echo $SEED | md5sum | cut -c1-8)/g; s/{{YEAR}}/$(date +%Y)/g" {} \;
+                        cp -r /tmp/ai-xray-template/* ${SITE_DIR}/
+                        rm -rf /tmp/template.tar.gz /tmp/ai-xray-template/
+                        colorEcho $GREEN "✓ 本地模板伪装站已生成"
+                        return 0
+                    else
+                        colorEcho $YELLOW "模板解压失败，使用默认站点"
+                    fi
                 fi
             fi
             rm -f /tmp/template.tar.gz
         fi
     fi
 
-    # Level 3: jiami.dog 反代
-    colorEcho $YELLOW "启用临时默认站点..."
+    # Level 3: 静态占位页
+    colorEcho $YELLOW "启用静态占位页..."
     cat > ${SITE_DIR}/index.html << 'FALLBACK'
-<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=https://jiami.dog"></head><body></body></html>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Site Maintenance</title>
+<style>body{font-family:Arial,sans-serif;text-align:center;padding:80px 20px;color:#555}
+h1{font-size:2em;color:#333}</style></head>
+<body><h1>Site Maintenance</h1><p>This site is currently under maintenance.</p></body></html>
 FALLBACK
-    colorEcho $GREEN "✓ 临时默认站点已启用"
+    colorEcho $GREEN "✓ 静态占位页已启用"
 }
 
 #=== 8.5 白名单 + TOS ========================================================
@@ -339,21 +367,31 @@ enableBBR() {
     modprobe tcp_bbr 2>/dev/null || true
     # 检查BBR是否可用
     if sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | grep -q bbr; then
-        if ! grep -q "^net.core.default_qdisc=fq" /etc/sysctl.conf 2>/dev/null; then
-            echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-        fi
-        if ! grep -q "^net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf 2>/dev/null; then
-            echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-        fi
-        sysctl -p >/dev/null 2>&1 || true
+        cat > /etc/sysctl.d/99-ai-xray-bbr.conf << 'BBRCFG'
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+BBRCFG
+        sysctl --system >/dev/null 2>&1 || true
         colorEcho $GREEN "✓ BBR已开启"
     else
         colorEcho $YELLOW "△ 内核不支持BBR，跳过"
     fi
 }
 
-#=== 10. 启动服务 ============================================================
+#=== 10. 配置测试 ==============================================================
+test_configs() {
+    nginx -t || return 1
+    /usr/local/bin/xray run -test -config /usr/local/etc/xray/config.json >/dev/null 2>&1 || return 1
+    return 0
+}
+
+#=== 11. 启动服务 ============================================================
 startServices() {
+    echo ""; colorEcho $BLUE "测试配置..."
+    if ! test_configs; then
+        colorEcho $RED "配置测试失败，未启动服务"
+        exit 1
+    fi
     echo ""; colorEcho $BLUE "启动服务..."
     systemctl restart xray 2>/dev/null || true; systemctl restart nginx 2>/dev/null || true
     sleep 2
@@ -367,9 +405,9 @@ startServices() {
     fi
 }
 
-#=== 11. 保存信息 =============================================================
+#=== 12. 保存信息 =============================================================
 saveInfo() {
-    IP=$(curl -s4m5 https://ip.gs || echo "unknown")
+    IP=$(curl -s4m5 https://ip.gs || curl -s4m5 https://ifconfig.me || echo "unknown")
     mkdir -p /etc/ai-xray
     cat > ${INFO_FILE} << EOF
 {
@@ -382,14 +420,22 @@ saveInfo() {
   "tls": "tls",
   "wsPath": "${WS_PATH}",
   "ip": "${IP}",
-  "siteType": "${SITE_TYPE}"
+  "siteType": "${SITE_TYPE}",
+  "managedPaths": {
+    "xrayConfig": "/usr/local/etc/xray/config.json",
+    "nginxConfig": "/etc/nginx/conf.d/ai-xray.conf",
+    "siteDir": "/usr/share/nginx/ai-xray",
+    "certDir": "/root/.acme.sh/${DOMAIN}_ecc",
+    "whitelist": "/usr/local/etc/xray/whitelist.txt",
+    "tosFile": "/usr/local/etc/xray/TOS.txt"
+  }
 }
 EOF
 }
 
-#=== 12. 输出信息 ============================================================
+#=== 13. 输出信息 ============================================================
 showInfo() {
-    IP=$(curl -s4m5 https://ip.gs || echo "unknown")
+    IP=$(curl -s4m5 https://ip.gs || curl -s4m5 https://ifconfig.me || echo "unknown")
 
     # 生成VMess链接
     raw="{\"v\":\"2\",\"ps\":\"AI-Xray-${DOMAIN}\",\"add\":\"${DOMAIN}\",\"port\":\"443\",\"id\":\"${UUID}\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${DOMAIN}\",\"path\":\"${WS_PATH}\",\"tls\":\"tls\"}"
@@ -422,7 +468,7 @@ showInfo() {
     echo -e "${GREEN}========================================${PLAIN}"
 }
 
-#=== 13. 安装管理命令 ========================================================
+#=== 14. 安装管理命令 ========================================================
 installManager() {
     cat > /usr/local/bin/ai-xray << 'MGRSCRIPT'
 #!/bin/bash
@@ -483,7 +529,7 @@ regenerate_site() {
     colorEcho $BLUE "正在重新生成伪装站..."
     SITE_TYPE=$(jq -r .siteType "$INFO_FILE" 2>/dev/null || echo "1")
     SITE_HTML=$(curl -fsSL --max-time 30 "https://aixray.fluxrouter.net/generate?type=${SITE_TYPE}&lang=en" 2>/dev/null) || true
-    if [[ ${#SITE_HTML} -gt 500 ]]; then
+    if [[ ${#SITE_HTML} -gt 500 ]] && echo "$SITE_HTML" | grep -qi "<html"; then
         echo "$SITE_HTML" > ${SITE_DIR}/index.html
         colorEcho $GREEN "✓ 伪装站已刷新"
     else
@@ -493,12 +539,20 @@ regenerate_site() {
 
 update_xray() {
     colorEcho $BLUE "检查Xray更新..."
-    bash -c "$(curl -sL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install 2>/dev/null
+    XRAY_URL="https://raw.githubusercontent.com/XTLS/Xray-install/e741a4f56d368afbb9e5be3361b40c4552d3710d/install-release.sh"
+    XRAY_SHA="7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555"
+    tmp_x=$(mktemp)
+    curl -fsSL "$XRAY_URL" -o "$tmp_x"
+    echo "${XRAY_SHA}  ${tmp_x}" | sha256sum -c - || {
+        colorEcho $RED "Xray校验失败"; rm -f "$tmp_x"; return 1
+    }
+    bash "$tmp_x" install && rm -f "$tmp_x"
     systemctl restart xray
     colorEcho $GREEN "✓ Xray已更新"
 }
 
 restart_services() {
+    nginx -t || { colorEcho $RED "nginx配置测试失败"; return 1; }
     systemctl restart xray; systemctl restart nginx
     colorEcho $GREEN "✓ 服务已重启"
 }
@@ -524,11 +578,19 @@ uninstall() {
     read -p "" confirm
     [[ "$confirm" != "y" ]] && [[ "$confirm" != "Y" ]] && return
 
-    systemctl stop xray 2>/dev/null; systemctl stop nginx 2>/dev/null
-    systemctl disable xray 2>/dev/null; systemctl disable nginx 2>/dev/null
-    rm -f /usr/local/bin/xray /usr/local/etc/xray/config.json
-    rm -f /etc/nginx/conf.d/ai-xray.conf
-    rm -rf /usr/share/nginx/ai-xray /etc/ai-xray
+    if [[ -f "$INFO_FILE" ]]; then
+        XCFG=$(jq -r '.managedPaths.xrayConfig // empty' "$INFO_FILE")
+        NCFG=$(jq -r '.managedPaths.nginxConfig // empty' "$INFO_FILE")
+        SDIR=$(jq -r '.managedPaths.siteDir // empty' "$INFO_FILE")
+        CDIR=$(jq -r '.managedPaths.certDir // empty' "$INFO_FILE")
+        WL=$(jq -r '.managedPaths.whitelist // empty' "$INFO_FILE")
+        TOSF=$(jq -r '.managedPaths.tosFile // empty' "$INFO_FILE")
+
+        systemctl stop xray 2>/dev/null || true
+        rm -f "$XCFG" "$NCFG" "$WL" "$TOSF"
+        rm -rf "$SDIR" "$CDIR" /etc/ai-xray
+    fi
+
     rm -f /usr/local/bin/ai-xray
     colorEcho $GREEN "✓ 卸载完成"
 }
@@ -666,16 +728,23 @@ main() {
     checkSystem
     getData
     vps_check
+
+    # 安装前备份已有配置
+    echo ""; colorEcho $BLUE "备份已有配置..."
+    mkdir -p /etc/ai-xray/backup 2>/dev/null || true
+    [[ -f /usr/local/etc/xray/config.json ]] && cp /usr/local/etc/xray/config.json /etc/ai-xray/backup/config.json.bak.$(date +%s) 2>/dev/null || true
+    [[ -f /etc/nginx/conf.d/ai-xray.conf ]] && cp /etc/nginx/conf.d/ai-xray.conf /etc/ai-xray/backup/ai-xray.conf.bak.$(date +%s) 2>/dev/null || true
+
     installDeps
     installXray
     installCert
     generateConfig
     generateSite
     enableBBR
-    startServices
     setupWhitelist
     saveInfo
     installManager
+    startServices
     showInfo
 }
 
