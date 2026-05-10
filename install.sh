@@ -332,58 +332,6 @@ TOSEOF
     colorEcho $GREEN "✓ 白名单 + TOS 已就绪"
 }
 
-#=== 8.6 重建routing ==========================================================
-rebuild_routing() {
-    python3 << 'PYEOF'
-import json
-
-config_path = "/usr/local/etc/xray/config.json"
-whitelist_path = "/usr/local/etc/xray/whitelist.txt"
-
-with open(config_path, "r") as f:
-    config = json.load(f)
-
-try:
-    with open(whitelist_path, "r") as f:
-        domains = [line.strip() for line in f if line.strip()]
-except FileNotFoundError:
-    domains = []
-
-if domains:
-    config["routing"] = {
-        "domainStrategy": "AsIs",
-        "rules": [
-            {
-                "type": "field",
-                "domain": [f"domain:{d}" for d in domains],
-                "outboundTag": "direct"
-            },
-            {
-                "type": "field",
-                "port": "0-65535",
-                "outboundTag": "blocked"
-            }
-        ]
-    }
-else:
-    config["routing"] = {
-        "domainStrategy": "AsIs",
-        "rules": [
-            {
-                "type": "field",
-                "port": "0-65535",
-                "outboundTag": "direct"
-            }
-        ]
-    }
-
-with open(config_path, "w") as f:
-    json.dump(config, f, indent=2)
-PYEOF
-
-    systemctl restart xray 2>/dev/null || killall -SIGHUP xray 2>/dev/null
-}
-
 #=== 9. 开启BBR ==============================================================
 enableBBR() {
     echo ""; colorEcho $BLUE "开启BBR..."
