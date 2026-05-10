@@ -77,6 +77,10 @@ vps_check() {
 installDeps() {
     echo ""; colorEcho $BLUE "安装依赖..."
     if [[ "$PMT" == "apt" ]]; then
+        # 等待系统初始更新完成（首次启动时apt可能被锁定）
+        while fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+            sleep 3
+        done
         apt update -qq
     elif [[ "$PMT" == "yum" ]]; then
         # CentOS 7需要EPEL来获取nginx
@@ -123,16 +127,17 @@ installXray() {
 #=== 6. 申请证书 =============================================================
 installCert() {
     echo ""; colorEcho $BLUE "申请证书..."
-    # 先检查端口占用
-    res=$(ss -ntlp 2>/dev/null | grep -E ':(80|443)\s' || true)
-    if [[ -n "$res" ]]; then
-        colorEcho $RED "80/443端口已被占用："
-        echo "$res"
-        colorEcho $YELLOW "请释放端口后重试"; exit 1
-    fi
+    # 停掉可能已占用的服务（如Debian/Ubuntu apt安装nginx后自动启动）
     systemctl stop nginx 2>/dev/null || true
     systemctl stop xray 2>/dev/null || true
     sleep 2
+    # 确认端口已释放
+    res=$(ss -ntlp 2>/dev/null | grep -E ':(80|443)\s' || true)
+    if [[ -n "$res" ]]; then
+        colorEcho $RED "80/443端口被其他进程占用："
+        echo "$res"
+        colorEcho $YELLOW "请释放端口后重试"; exit 1
+    fi
 
     $CMD_INSTALL socat openssl 2>/dev/null
     if [[ "$PMT" == "yum" ]]; then
@@ -144,7 +149,7 @@ installCert() {
     fi
 
     ACME_URL="https://raw.githubusercontent.com/acmesh-official/acme.sh/3.1.3/acme.sh"
-    ACME_SHA256="adc76e222a4cde93d6390f41618df7796549ed2b6057239376df08e235ae4574"
+    ACME_SHA256="66171c3113f2e36569572edb1656962d63c72862a57e03cbd2a066adaad5e588"
     tmp_acme=$(mktemp)
     curl -fsSL "$ACME_URL" -o "$tmp_acme"
     echo "${ACME_SHA256}  ${tmp_acme}" | sha256sum -c - || {
@@ -153,13 +158,13 @@ installCert() {
     install -m 0755 "$tmp_acme" /usr/local/bin/acme.sh
     rm -f "$tmp_acme"
     /usr/local/bin/acme.sh --set-default-ca --server letsencrypt 2>/dev/null || true
-    /usr/local/bin/acme.sh --issue -d ${DOMAIN} --keylength ec-256 --standalone --force
+    /usr/local/bin/acme.sh --issue -d ${DOMAIN} --keylength ec-256 --standalone --force --server letsencrypt
 
     mkdir -p /root/.acme.sh/${DOMAIN}_ecc
     /usr/local/bin/acme.sh --install-cert -d ${DOMAIN} --ecc \
         --key-file /root/.acme.sh/${DOMAIN}_ecc/${DOMAIN}.key \
         --fullchain-file /root/.acme.sh/${DOMAIN}_ecc/fullchain.cer \
-        --reloadcmd "systemctl reload nginx"
+        --reloadcmd "systemctl is-active --quiet nginx && systemctl reload nginx || true"
 
     [[ -f /root/.acme.sh/${DOMAIN}_ecc/fullchain.cer ]] || {
         colorEcho $RED "证书申请失败"; exit 1
