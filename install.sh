@@ -1,7 +1,7 @@
 #!/bin/bash
 #=============================================================================
 # AI-Xray v2.0 — 跨境电商加速器
-# VMESS + WS + TLS + CDN · AI伪装站 · 一行命令全自动安装
+# VMESS + WS + TLS + CDN · AI站点生成 · 一行命令全自动安装
 #=============================================================================
 
 set -e
@@ -49,14 +49,14 @@ getData() {
     DOMAIN=${DOMAIN,,}
     colorEcho $BLUE "域名：$DOMAIN"
 
-    echo ""; echo "请选择伪装站类型[默认：1]:"
+    echo ""; echo "请选择站点类型[默认：1]:"
     echo "  1) AI协议文档站（AI自动生成，推荐）"
     echo "  2) 加密工具站"
     echo "  3) 学生福利导航站"
-    echo "  4) 不需要伪装站"
+    echo "  4) 不需要站点"
     read -p "选择[1]: " SITE_TYPE
     SITE_TYPE=${SITE_TYPE:-1}
-    colorEcho $BLUE "伪装站类型：$SITE_TYPE"
+    colorEcho $BLUE "站点类型：$SITE_TYPE"
 }
 
 #=== 3. VPS质量检测 ===========================================================
@@ -267,22 +267,22 @@ NEOF
     colorEcho $GREEN "✓ 配置生成完成"
 }
 
-#=== 8. 伪装站生成（三层fallback） ============================================
+#=== 8. 站点生成（三层fallback） ============================================
 generateSite() {
     mkdir -p ${SITE_DIR}
 
     if [[ "$SITE_TYPE" == "4" ]]; then
         echo '<html><body>.</body></html>' > ${SITE_DIR}/index.html
-        colorEcho $GREEN "✓ 跳过伪装站"
+        colorEcho $GREEN "✓ 跳过站点"
         return 0
     fi
 
     # Level 1: AI实时生成
-    echo ""; colorEcho $BLUE "正在生成专属伪装站..."
+    echo ""; colorEcho $BLUE "正在生成专属站点..."
     SITE_HTML=$(curl -fsSL --max-time 30 "https://aixray.fluxrouter.net/generate?type=${SITE_TYPE}&lang=en" 2>/dev/null) || true
     if [[ ${#SITE_HTML} -gt 500 ]] && echo "$SITE_HTML" | grep -qi "<html"; then
         echo "$SITE_HTML" > ${SITE_DIR}/index.html
-        colorEcho $GREEN "✓ AI专属伪装站已生成"
+        colorEcho $GREEN "✓ AI专属站点已生成"
         return 0
     fi
 
@@ -306,7 +306,7 @@ generateSite() {
                         find /tmp/ai-xray-template -name '*.html' -exec sed -i "s/{{SITE_TITLE}}/Documentation Portal/g; s/{{BUILD_ID}}/$(echo $SEED | md5sum | cut -c1-8)/g; s/{{YEAR}}/$(date +%Y)/g" {} \;
                         cp -r /tmp/ai-xray-template/* ${SITE_DIR}/
                         rm -rf /tmp/template.tar.gz /tmp/ai-xray-template/
-                        colorEcho $GREEN "✓ 本地模板伪装站已生成"
+                        colorEcho $GREEN "✓ 本地模板站点已生成"
                         return 0
                     else
                         colorEcho $YELLOW "模板解压失败，使用默认站点"
@@ -456,7 +456,7 @@ showInfo() {
     echo -e "  UUID：      ${RED}${UUID}${PLAIN}"
     echo -e "  协议：      ${RED}VMESS + WS + TLS${PLAIN}"
     echo -e "  WS路径：    ${RED}${WS_PATH}${PLAIN}"
-    echo -e "  伪装站：    ${RED}https://${DOMAIN}${PLAIN}"
+    echo -e "  站点：    ${RED}https://${DOMAIN}${PLAIN}"
     echo ""
     echo -e "${BLUE}  VMess链接：${PLAIN}"
     echo -e "${RED}  ${link}${PLAIN}"
@@ -486,7 +486,7 @@ colorEcho() { echo -e "${1}${@:2}${PLAIN}"; }
 show_menu() {
     echo ""; echo -e "${BLUE}AI-Xray 管理菜单 v2.0${PLAIN}"; echo ""
     echo "  1) 查看连接信息"
-    echo "  2) 重新生成伪装站"
+    echo "  2) 重新生成站点"
     echo "  3) 更新Xray内核"
     echo "  4) 重启服务"
     echo "  5) 查看日志"
@@ -531,12 +531,12 @@ show_info() {
 }
 
 regenerate_site() {
-    colorEcho $BLUE "正在重新生成伪装站..."
+    colorEcho $BLUE "正在重新生成站点..."
     SITE_TYPE=$(jq -r .siteType "$INFO_FILE" 2>/dev/null || echo "1")
     SITE_HTML=$(curl -fsSL --max-time 30 "https://aixray.fluxrouter.net/generate?type=${SITE_TYPE}&lang=en" 2>/dev/null) || true
     if [[ ${#SITE_HTML} -gt 500 ]] && echo "$SITE_HTML" | grep -qi "<html"; then
         echo "$SITE_HTML" > ${SITE_DIR}/index.html
-        colorEcho $GREEN "✓ 伪装站已刷新"
+        colorEcho $GREEN "✓ 站点已刷新"
     else
         colorEcho $RED "✗ 生成失败，稍后重试"
     fi
